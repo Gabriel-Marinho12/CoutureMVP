@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CoutureMVP - Protected Viewer</title>
+    <style>
+        body { display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #121212; color: white; font-family: sans-serif; flex-direction: column;}
+        canvas { border: 2px solid #333; box-shadow: 0 10px 20px rgba(0,0,0,0.5); margin-top: 20px;}
+    </style>
+</head>
+<body>
+    <div>
+        <h2>Protected Garment Viewer</h2>
+        <p>Try to right-click or save the image below. The Canvas API blocks it.</p>
+    </div>
+    <!-- Canvas exibe a imagem mas não deixa baixar -->
+    <canvas id="garmentCanvas" width="400" height="500"></canvas>
+
+    <script>
+        const canvas = document.getElementById('garmentCanvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        
+        // Imagem genérica de roupa de luxo para a demo
+        img.crossOrigin = "Anonymous";
+        img.src = 'https://images.unsplash.com/photo-1539008835657-9e8e9680c956?auto=format&fit=crop&w=400&h=500&q=80';
+        
+        img.onload = () => {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
+
+        // Desabilita o clique com botão direito
+        canvas.addEventListener('contextmenu', event => event.preventDefault());
+    </script>
+</body>
+</html>
