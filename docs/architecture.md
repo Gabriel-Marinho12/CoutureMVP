@@ -3,6 +3,7 @@
 This document outlines the theoretical architecture and data flow for the CoutureMVP platform, bridging Web2 e-commerce with Web3 IP protection.
 
 ## 1. Core Architecture Flow
+```text
 
 [ Designer ] 
     │
@@ -17,7 +18,7 @@ This document outlines the theoretical architecture and data flow for the Coutur
 ║   SOLANA BLOCKCHAIN  ║  <-- Immutable IP Timestamp registered!
 ║   (cNFT / Metaplex)  ║
 ╚══════════════════════╝
-
+```
 ## 2. Platform Modules
 
 ### Module A: IP Registration (The Backend)
@@ -36,5 +37,6 @@ When a general user or potential scraper visits the storefront:
 ### Module C: Digital Twin (The Consumer Verification)
 When a verified customer purchases the physical garment:
 1. The physical item is shipped.
+
 2. The corresponding cNFT (containing the IP hash and authenticity metadata) is transferred to the customer's Solana Wallet (e.g., Phantom).
 3. The customer now holds an unforgeable digital certificate guaranteeing the physical item's authenticity and preserving its secondary market value.
