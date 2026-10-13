@@ -3,4 +3,10 @@ __pycache__/
 .env
 venv/
 env/
+.venv/
 .DS_Store
+node_modules/
+backend/data/
+backend/.secrets/
+.pytest_cache/
+backend/.localnet/

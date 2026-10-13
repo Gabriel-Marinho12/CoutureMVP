@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Couture</title>
+  <meta name="description" content="Couture protects haute couture designs with on-chain proof of authorship and certificates of authenticity.">
+  <meta name="theme-color" content="#0c0b0a">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/couture.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%230c0b0a'/%3E%3Ctext x='32' y='44' font-family='Georgia,serif' font-size='36' fill='%23c8ad7f' text-anchor='middle'%3EC%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="masthead">
+    <a class="wordmark" href="#collection" aria-label="Couture home">Couture</a>
+    <nav class="nav" aria-label="Primary">
+      <a href="#collection" data-route="collection">Collection</a>
+      <a href="#register" data-route="register">Register</a>
+      <a href="#verify" data-route="verify">Verify</a>
+    </nav>
+    <div class="network" id="network" title="Network status">
+      <span class="network-dot"></span><span class="network-label">Connecting</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Collection -->
+    <section class="view" id="view-collection" data-view="collection">
+      <div class="hero">
+        <p class="eyebrow">Maison registry</p>
+        <h1 class="display">Every design,<br><em>provably yours.</em></h1>
+        <p class="lede">Each piece in the collection is fingerprinted and sealed on Solana the moment it is created. What you see here is rendered, never served.</p>
+      </div>
+      <div class="gallery" id="gallery" aria-live="polite"></div>
+      <p class="empty" id="gallery-empty" hidden>The collection is waiting for its first piece. <a href="#register">Register a design</a>.</p>
+    </section>
+
+    <!-- Register -->
+    <section class="view" id="view-register" data-view="register" hidden>
+      <div class="split">
+        <div class="split-intro">
+          <p class="eyebrow">Atelier</p>
+          <h2 class="title">Register a design</h2>
+          <p class="lede">Your file is fingerprinted with SHA-256 and the fingerprint is written to the Solana ledger with a timestamp no one can alter. The original stays private.</p>
+          <ol class="principles">
+            <li><span>I</span>Fingerprint computed in your browser and verified by the server.</li>
+            <li><span>II</span>Only the fingerprint goes on-chain. Never the design, never your name.</li>
+            <li><span>III</span>A public, permanent record you can cite in any dispute.</li>
+          </ol>
+        </div>
+
+        <form class="card studio" id="studio" novalidate>
+          <label class="drop" id="drop">
+            <input type="file" id="file" name="file" required>
+            <span class="drop-mark" aria-hidden="true">+</span>
+            <span class="drop-title">Drop your design here</span>
+            <span class="drop-hint">Sketches, renders, patterns, 3D files · up to 50 MB</span>
+          </label>
+          <div class="file-chip" id="file-chip" hidden>
+            <span class="file-name" id="file-name"></span>
+            <button type="button" class="link" id="file-clear">Replace</button>
+          </div>
+
+          <div class="fields">
+            <label class="field">
+              <span>Title of the piece</span>
+              <input type="text" name="title" id="title" maxlength="120" placeholder="Robe Nocturne, look 12" required>
+            </label>
+            <label class="field">
+              <span>Designer or maison</span>
+              <input type="text" name="designer" id="designer" maxlength="120" placeholder="Atelier Marinho" required>
+            </label>
+            <label class="field" id="key-field" hidden>
+              <span>Access key</span>
+              <input type="password" name="key" id="key" autocomplete="off" placeholder="Provided by Couture">
+            </label>
+          </div>
+
+          <button class="button" type="submit" id="submit">Seal on Solana</button>
+          <p class="form-note" id="form-note" role="status"></p>
+
+          <ol class="timeline" id="timeline" hidden>
+            <li data-step="received"><span class="step-name">Received</span><span class="step-detail"></span></li>
+            <li data-step="hashed"><span class="step-name">Fingerprinted</span><span class="step-detail"></span></li>
+            <li data-step="submitted"><span class="step-name">Submitted to Solana</span><span class="step-detail"></span></li>
+            <li data-step="confirmed"><span class="step-name">Sealed</span><span class="step-detail"></span></li>
+          </ol>
+
+          <div class="seal" id="seal" hidden></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- Verify -->
+    <section class="view" id="view-verify" data-view="verify" hidden>
+      <div class="split">
+        <div class="split-intro">
+          <p class="eyebrow">Provenance</p>
+          <h2 class="title">Verify a design</h2>
+          <p class="lede">Drop any file to check whether it matches a registered original, or paste a fingerprint. The comparison happens on the exact bytes: a single altered pixel produces a different fingerprint.</p>
+        </div>
+        <div class="card">
+          <label class="drop drop-compact" id="verify-drop">
+            <input type="file" id="verify-file">
+            <span class="drop-title">Drop a file to verify</span>
+            <span class="drop-hint">It is fingerprinted locally and never uploaded</span>
+          </label>
+          <div class="or"><span>or</span></div>
+          <form class="inline-form" id="verify-form">
+            <input type="text" id="verify-hash" placeholder="SHA-256 fingerprint" spellcheck="false" autocomplete="off" aria-label="SHA-256 fingerprint">
+            <button class="button button-quiet" type="submit">Look up</button>
+          </form>
+          <div class="verdict" id="verdict" aria-live="polite" hidden></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Protected viewer -->
+  <div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-labelledby="viewer-title" hidden>
+    <button class="viewer-close" id="viewer-close" aria-label="Close">×</button>
+    <div class="viewer-stage" id="viewer-stage">
+      <canvas id="viewer-canvas" aria-label="Protected rendering of the design"></canvas>
+      <div class="viewer-shield" id="viewer-shield"></div>
+      <div class="viewer-veil" id="viewer-veil">Rendering paused</div>
+    </div>
+    <aside class="viewer-panel">
+      <p class="eyebrow" id="viewer-designer"></p>
+      <h3 class="title" id="viewer-title"></h3>
+      <dl class="facts" id="viewer-facts"></dl>
+      <div class="certify" id="certify" hidden>
+        <h4>Issue a certificate of authenticity</h4>
+        <p>Mints a compressed NFT to the buyer's wallet, binding the physical piece to this registration.</p>
+        <form class="inline-form" id="certify-form">
+          <input type="text" id="certify-owner" placeholder="Buyer's Solana wallet" spellcheck="false" autocomplete="off" aria-label="Buyer's Solana wallet">
+          <button class="button button-quiet" type="submit">Issue</button>
+        </form>
+        <p class="form-note" id="certify-note" role="status"></p>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="colophon">
+    <span>Couture</span>
+    <span>Authorship sealed on Solana</span>
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="assets/viewer.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

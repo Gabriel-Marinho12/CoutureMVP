@@ -1,42 +1,46 @@
 # CoutureMVP - System Architecture
 
-This document outlines the theoretical architecture and data flow for the CoutureMVP platform, bridging Web2 e-commerce with Web3 IP protection.
+## 1. Data flow
 
-## 1. Core Architecture Flow
 ```text
+[ Designer ] ── upload (multipart) ──▶ POST /api/designs
+                                          │  stream to disk + SHA-256 (incremental)
+                                          │  claim record by hash (duplicates return the original)
+                                          │  preview: downscale + watermark (original stays private)
+                                          ▼
+                                   background job ──▶ SPL Memo v2 transaction ──▶ Solana
+                                          │                "couture:ip:v1 sha256=… ref=…"
+                                          ▼
+                     NDJSON events streamed back: received → hashed → submitting
+                                                  → submitted (signature) → confirmed
 
-[ Designer ] 
-    │
-    ▼ (Uploads High-Res Design)
-┌──────────────────────┐
-│ CoutureMVP Backend   │ ──(1) Hash Generation (SHA-256)
-│ (Python / Node.js)   │ ──(2) Encrypted Storage (Arweave)
-└──────────┬───────────┘
-           │
-           ▼ (Mints cNFT via API)
-╔══════════════════════╗
-║   SOLANA BLOCKCHAIN  ║  <-- Immutable IP Timestamp registered!
-║   (cNFT / Metaplex)  ║
-╚══════════════════════╝
+[ Visitor ] ── GET /api/designs/{id}/view ──▶ shuffled tile sprite + order ──▶ canvas reassembly
+
+[ Brand ] ── POST /api/designs/{id}/certificates {owner} ──▶ Node sidecar ──▶ Bubblegum V2 mintV2
+                                                                              (compressed NFT to buyer)
 ```
-## 2. Platform Modules
 
-### Module A: IP Registration (The Backend)
-When a luxury brand or designer uploads a new sketch or 3D model:
-1. The backend script intercepts the file and generates a unique cryptographic hash (SHA-256).
-2. The system triggers a Solana Smart Contract (Program) to mint a Compressed NFT (cNFT).
-3. The file's Hash and the Timestamp are permanently recorded on the Solana ledger, serving as indisputable proof of authorship for DMCA takedowns or legal disputes.
+## 2. Solana robustness
 
-### Module B: Visual Obfuscation (The Frontend)
-When a general user or potential scraper visits the storefront:
-1. The raw high-resolution image is never sent directly via standard tags.
-2. The image is rendered dynamically inside an HTML5 canvas element.
-3. Native browser functions (Right-click context menu, drag-and-drop) are disabled. 
-4. Future implementation: Image tiling and dynamic WebGL rendering for 3D garments to completely eliminate high-res source file scraping.
+`app/solana/rpc.py` and `backend/metaplex/cnft.mjs` follow the same rules:
 
-### Module C: Digital Twin (The Consumer Verification)
-When a verified customer purchases the physical garment:
-1. The physical item is shipped.
+- **Failover:** every call walks the configured endpoints, sticking to the last healthy one.
+- **Retries:** timeouts, connection errors, HTTP 429/5xx and node-health RPC codes are retried with exponential backoff and jitter (honouring `Retry-After`). Request errors are not retried.
+- **No double submission:** a signed transaction is rebroadcast unchanged (same signature, idempotent) until it is confirmed or its blockhash has provably expired (block height past `lastValidBlockHeight`, plus a final status check). Only then is it rebuilt with a fresh blockhash.
+- **Classified failures:** insufficient funds and program errors are permanent; an expired-without-landing transaction is safe to retry; a broadcast whose outcome is unknown is recorded as `unconfirmed` with its signature and settled later by the reconciler (every 2 minutes and at startup), never resubmitted.
+- **Decoupled jobs:** registration runs in a background task, so a closed browser tab does not abort it.
 
-2. The corresponding cNFT (containing the IP hash and authenticity metadata) is transferred to the customer's Solana Wallet (e.g., Phantom).
-3. The customer now holds an unforgeable digital certificate guaranteeing the physical item's authenticity and preserving its secondary market value.
+## 3. Why a Node sidecar for Metaplex
+
+Metaplex maintains official SDKs only for JavaScript and Rust. Bubblegum V2 instructions, Merkle tree sizing and leaf parsing are taken from `@metaplex-foundation/mpl-bubblegum` instead of being re-implemented in Python. The Python backend calls `node cnft.mjs <create-tree|mint>` with JSON in and one JSON line out, and adds its own retries for failures the sidecar marks as safe.
+
+## 4. Front-end protection layers
+
+1. Originals never leave the server. Views are downscaled (max 1600 px) with a burned-in fingerprint mark.
+2. Each view is a freshly shuffled 8×8 tile sprite. Each tile carries a 2 px extruded border, so lossy compression cannot bleed between tiles. It is decoded into an `ImageBitmap`, never an `<img>` or URL.
+3. Protected canvases refuse `toDataURL`, `toBlob`, `captureStream` and `getImageData`.
+4. Context menu, drag, copy, select, save/print/view-source shortcuts and printing are blocked. PrintScreen clears the clipboard.
+5. The viewer veils itself when the window loses focus or the tab is hidden.
+6. A diagonal watermark with the viewer's session id is drawn over every rendering.
+
+None of this can stop a screenshot. Its purpose is to defeat casual saving and generic scrapers. Proof of authorship comes from the on-chain registration.
