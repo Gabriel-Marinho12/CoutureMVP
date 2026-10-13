@@ -70,6 +70,17 @@ a { color: inherit; }
   text-decoration: none;
   margin-right: -.42em;
 }
+/* The hero's hairline monogram C, reused as the logo initial. */
+.wordmark-initial {
+  display: inline-block;
+  margin-right: .04em;
+  font-size: 1.7em;
+  font-weight: 300;
+  line-height: 0;
+  vertical-align: -.2em;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--text);
+}
 
 .nav { display: flex; gap: clamp(18px, 3vw, 44px); }
 .nav a {

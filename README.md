@@ -67,6 +67,8 @@ and in `backend/.env` set `SOLANA_CLUSTER=localnet` and `COUTURE_DATA_DIR=data/l
 
 Explorer links open explorer.solana.com in custom-cluster mode, pointed at your local node.
 
+The local ledger grows by about 100 MB per minute, even when idle. The script stops the validator once the ledger passes 2 GB (`LEDGER_MAX_MB` to change). Stop it when you are not using it, and restart with `--reset` to reclaim the space.
+
 ### Option B: devnet
 
 Fund the wallet with devnet SOL at https://faucet.solana.com (the RPC airdrop and the faucet are rate-limited per IP/account), then:
