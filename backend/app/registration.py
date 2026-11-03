@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -18,7 +18,7 @@ from typing import Any
 from solders.keypair import Keypair
 
 from . import imaging
-from .config import Settings
+from .config import DEFAULT_PRINCIPAL, Settings
 from .solana import memo
 from .solana.cnft import CnftMinter, CnftUnavailable
 from .solana.rpc import ConfirmationUnknown, InsufficientFunds, SolanaError, SolanaRpc, TransactionFailed
@@ -29,6 +29,26 @@ log = logging.getLogger(__name__)
 TERMINAL_EVENTS = {"confirmed", "failed", "unconfirmed"}
 JOB_RETENTION_SECONDS = 600
 SETTLE_AFTER_SECONDS = 300
+NFT_NAME_MAX_BYTES = 32  # Metaplex on-chain limit for the asset name
+
+# Fields that stay in the database and logs but never leave the API. `error`
+# can hold raw RPC / sidecar output (endpoint URLs with provider API keys);
+# `owner` / `issued_by` are internal principal ids.
+PRIVATE_DESIGN_FIELDS = ("error", "owner")
+PRIVATE_CERT_FIELDS = ("error", "issued_by")
+
+
+class CertificateRefused(Exception):
+    """A business rule forbids this certificate. `status` is the HTTP code to answer with."""
+
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+
+
+def fit_utf8(text: str, max_bytes: int) -> str:
+    """Truncate to at most `max_bytes` of UTF-8 without splitting a character."""
+    return text.encode()[:max_bytes].decode(errors="ignore")
 
 
 @dataclass
@@ -71,12 +91,16 @@ class Registrar:
 
     def design_view(self, design: Design) -> dict[str, Any]:
         data = design.to_dict()
+        for name in PRIVATE_DESIGN_FIELDS:
+            data.pop(name, None)
         data["explorer_url"] = self.settings.explorer_tx(design.signature) if design.signature else None
         data["memo"] = memo.build_memo(design.sha256, design.id)
         return data
 
     def certificate_view(self, cert: Certificate) -> dict[str, Any]:
         data = cert.to_dict()
+        for name in PRIVATE_CERT_FIELDS:
+            data.pop(name, None)
         data["explorer_url"] = self.settings.explorer_tx(cert.signature) if cert.signature else None
         data["asset_explorer_url"] = self.settings.explorer_address(cert.asset_id) if cert.asset_id else None
         data["metadata_uri"] = self.metadata_uri(cert.id)
@@ -150,12 +174,36 @@ class Registrar:
     def merkle_tree(self) -> str | None:
         return self.settings.merkle_tree or self.store.get_value("merkle_tree")
 
-    async def issue_certificate(self, design: Design, owner: str) -> Certificate:
+    async def issue_certificate(self, design: Design, owner: str, *, order_id: str,
+                                principal: str) -> tuple[Certificate, bool]:
+        """Mint a certificate for one sale. Returns (certificate, newly_created).
+
+        Rules (each one closes an audit finding, see CLAUDE.md):
+        - only the principal that registered the design may certify it;
+        - one certificate per (design, order_id): retries never mint twice;
+        - per-design and per-principal hourly caps bound SOL / tree spend.
+        """
+        if not design_owned_by(design, principal):
+            raise CertificateRefused(403, "only the designer who registered this design can issue its certificates")
         tree = self.merkle_tree()
         if not tree:
             raise CnftUnavailable("no Merkle tree configured; run `python -m app.cli create-tree`")
-        cert = self.store.create_certificate(design.id, owner)
-        name = f"Couture · {design.title}"
+        if self.store.count_certificates_for(design.id) >= self.settings.max_certs_per_design:
+            raise CertificateRefused(429, "this design reached its certificate limit")
+        since = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(timespec="seconds")
+        if self.store.count_certificates_issued_since(principal, since) >= self.settings.cert_limit_per_hour:
+            raise CertificateRefused(429, "hourly certificate limit reached; try again later")
+
+        cert, created = self.store.create_certificate(design.id, owner, order_id=order_id, issued_by=principal)
+        if not created:
+            if cert.owner != owner:
+                raise CertificateRefused(409, "this order already has a certificate for a different wallet")
+            return cert, False
+        return await self._mint(design, cert, tree), True
+
+    async def _mint(self, design: Design, cert: Certificate, tree: str) -> Certificate:
+        owner = cert.owner
+        name = fit_utf8(f"Couture · {design.title}", NFT_NAME_MAX_BYTES)
         try:
             result = await self.minter.mint(tree=tree, owner=owner, name=name, uri=self.metadata_uri(cert.id))
         except ConfirmationUnknown as exc:
@@ -183,6 +231,10 @@ class Registrar:
             await self._settle_certificate(cert)
 
     async def _settle_design(self, design: Design) -> None:
+        if not design.signature and design.status == PENDING and _age_seconds(design.created_at) < SETTLE_AFTER_SECONDS:
+            # Just claimed: the preview is still being generated and the job not
+            # yet started. Failing it now would race the live registration.
+            return
         if not design.signature:
             self.store.update_design(design.id, status=FAILED, error="interrupted before broadcast")
             return
@@ -216,6 +268,11 @@ class Registrar:
             self.store.update_certificate(cert.id, status=CONFIRMED, error=None)
         elif status and status.get("err") is not None:
             self.store.update_certificate(cert.id, status=FAILED, error=f"transaction failed: {status['err']}")
+
+
+def design_owned_by(design: Design, principal: str) -> bool:
+    # Legacy rows (registered before principals existed) belong to `default`.
+    return (design.owner or DEFAULT_PRINCIPAL) == principal
 
 
 def _age_seconds(timestamp: str) -> float:

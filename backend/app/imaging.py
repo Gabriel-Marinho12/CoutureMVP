@@ -12,7 +12,9 @@ determined attacker taking screenshots, which is what on-chain proof covers.
 from __future__ import annotations
 
 import io
+import logging
 import random
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,19 +25,36 @@ THUMBNAIL_MAX = 512
 GRID = 8
 TILE_PAD = 2  # extruded border per sprite cell, so lossy compression never bleeds between tiles
 
-Image.MAX_IMAGE_PIXELS = 120_000_000  # guard against decompression bombs
+log = logging.getLogger(__name__)
+
+# Decompression-bomb guard. 40 MP ≈ 120 MB as RGB, and decoding makes a few
+# copies; Pillow only *warns* between 1x and 2x this value, so make_preview
+# turns that warning into an error. Do not raise this without measuring memory
+# under concurrent uploads.
+Image.MAX_IMAGE_PIXELS = 40_000_000
 
 
 def make_preview(original: Path, destination: Path, mark: str) -> bool:
-    """Write the preview; False when the upload is not a raster image."""
+    """Write the preview; False when the upload is not a usable raster image.
+
+    Uploads are untrusted: any decoder failure (Pillow raises OSError,
+    SyntaxError, ValueError, EOFError, struct.error, ...) means "no preview",
+    never a 500 that leaves the claimed design half-processed.
+    """
     try:
-        with Image.open(original) as image:
-            image = ImageOps.exif_transpose(image).convert("RGB")
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(original) as image:
+                image = ImageOps.exif_transpose(image).convert("RGB")
+            image.thumbnail((PREVIEW_MAX, PREVIEW_MAX), Image.Resampling.LANCZOS)
+            _watermark(image, mark)
+            image.save(destination, "WEBP", quality=86, method=6)
+    except (UnidentifiedImageError, Image.DecompressionBombError, Image.DecompressionBombWarning):
         return False
-    image.thumbnail((PREVIEW_MAX, PREVIEW_MAX), Image.Resampling.LANCZOS)
-    _watermark(image, mark)
-    image.save(destination, "WEBP", quality=86, method=6)
+    except Exception:  # noqa: BLE001 - see docstring
+        log.warning("no preview for %s: undecodable image", original.name, exc_info=True)
+        destination.unlink(missing_ok=True)
+        return False
     return True
 
 

@@ -7,7 +7,8 @@
 // save, drag, copy and print paths are closed.
 //
 // This deters casual saving and generic scrapers. Screenshots cannot be
-// prevented on the web; the on-chain registration is what proves authorship.
+// prevented on the web; the on-chain record is a dated proof of possession,
+// not of authorship.
 (function () {
   'use strict';
 
@@ -104,28 +105,27 @@
       canvas.addEventListener(type, (event) => event.preventDefault()));
   }
 
-  // Page-wide guards, active while the document shows protected work.
-  function installGuards({ onExposure } = {}) {
-    const block = (event) => {
-      if (event.target.closest && event.target.closest('input, textarea')) return;
-      event.preventDefault();
-    };
-    ['contextmenu', 'dragstart', 'copy', 'cut'].forEach((type) => document.addEventListener(type, block));
+  // Guards for the protected stage only, installed while the viewer is open.
+  // They never touch the rest of the page (people must be able to copy
+  // fingerprints, signatures and links) and never touch the clipboard.
+  // Returns a function that removes them.
+  function installGuards(stage, { onExposure } = {}) {
+    const block = (event) => event.preventDefault();
+    const stageEvents = ['contextmenu', 'dragstart', 'copy', 'cut', 'selectstart'];
+    stageEvents.forEach((type) => stage.addEventListener(type, block));
 
-    document.addEventListener('keydown', (event) => {
+    // Save and print would capture the open work; other shortcuts stay untouched.
+    const onKey = (event) => {
       const key = event.key.toLowerCase();
-      const mod = event.metaKey || event.ctrlKey;
-      if ((mod && ['s', 'p', 'u'].includes(key)) || (mod && event.shiftKey && ['i', 'j', 'c', 's'].includes(key)) || key === 'f12') {
-        event.preventDefault();
-      }
-      if (key === 'printscreen') {
-        onExposure?.();
-        navigator.clipboard?.writeText('').catch(() => {});
-      }
-    });
-    document.addEventListener('keyup', (event) => {
-      if (event.key.toLowerCase() === 'printscreen') navigator.clipboard?.writeText('').catch(() => {});
-    });
+      if ((event.metaKey || event.ctrlKey) && (key === 's' || key === 'p')) event.preventDefault();
+      if (key === 'printscreen') onExposure?.();
+    };
+    document.addEventListener('keydown', onKey);
+
+    return () => {
+      stageEvents.forEach((type) => stage.removeEventListener(type, block));
+      document.removeEventListener('keydown', onKey);
+    };
   }
 
   window.CoutureCanvas = { render, viewFromApi, viewFromImageUrl, installGuards, session: SESSION };

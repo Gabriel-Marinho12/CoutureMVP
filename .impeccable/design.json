@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-03T12:00:00Z",
+  "title": "Design System: Couture",
+  "extensions": {
+    "colorMeta": {
+      "paper": { "role": "neutral", "displayName": "Paper", "canonical": "#f4efe6", "tonalRamp": ["#2a251e", "#463e33", "#655a4b", "#877a68", "#ab9e8a", "#cfc4b2", "#e6ddcf", "#f4efe6"] },
+      "vellum": { "role": "neutral", "displayName": "Vellum", "canonical": "#faf7f1", "tonalRamp": ["#2b2822", "#47423a", "#676056", "#8a8276", "#aea79b", "#d2ccc1", "#ebe6dd", "#faf7f1"] },
+      "sunk-linen": { "role": "neutral", "displayName": "Sunk Linen", "canonical": "#ebe4d8", "tonalRamp": ["#28231c", "#433b30", "#625747", "#837663", "#a69883", "#c9bca7", "#ddd4c5", "#ebe4d8"] },
+      "rule": { "role": "neutral", "displayName": "Rule", "canonical": "#d4c9b8", "tonalRamp": ["#26211a", "#40382c", "#5c5141", "#7b6e5a", "#9b8d78", "#bbae9a", "#d4c9b8", "#ece5da"] },
+      "rule-soft": { "role": "neutral", "displayName": "Rule Soft", "canonical": "#e3dbcd", "tonalRamp": ["#27221b", "#423a2e", "#5f5444", "#7f725f", "#a19380", "#c3b7a4", "#e3dbcd", "#f3eee6"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#1c1915", "tonalRamp": ["#1c1915", "#35302a", "#504941", "#6b6256", "#8a8073", "#aba295", "#cdc6bb", "#ece8e1"] },
+      "ink-soft": { "role": "neutral", "displayName": "Ink Soft", "canonical": "#6b6256", "tonalRamp": ["#1c1915", "#35302a", "#504941", "#6b6256", "#8a8073", "#aba295", "#cdc6bb", "#ece8e1"] },
+      "ink-mute": { "role": "neutral", "displayName": "Ink Mute", "canonical": "#968b7d", "tonalRamp": ["#1c1915", "#35302a", "#504941", "#6b6256", "#968b7d", "#b2a99c", "#d0c9bf", "#ece8e1"] },
+      "saddle-bronze": { "role": "primary", "displayName": "Saddle Bronze", "canonical": "#8b6b43", "tonalRamp": ["#2a1f12", "#45331d", "#6c5332", "#8b6b43", "#a88760", "#c4a988", "#dfcdb6", "#f3eadf"] },
+      "saddle-bronze-deep": { "role": "primary", "displayName": "Saddle Bronze Deep", "canonical": "#6c5332", "tonalRamp": ["#2a1f12", "#45331d", "#6c5332", "#8b6b43", "#a88760", "#c4a988", "#dfcdb6", "#f3eadf"] },
+      "sage-success": { "role": "status", "displayName": "Sage", "canonical": "#5b7650", "tonalRamp": ["#1b2418", "#2e3d29", "#44583c", "#5b7650", "#7a9370", "#9cb094", "#c2d0bc", "#e7eee4"] },
+      "terracotta-danger": { "role": "status", "displayName": "Terracotta", "canonical": "#a24f3c", "tonalRamp": ["#2e150f", "#4f241a", "#783727", "#a24f3c", "#bd725f", "#d39a8b", "#e7c3b9", "#f7e9e5"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Hero headlines only; italic words turn Saddle Bronze." },
+      "headline": { "displayName": "Headline", "purpose": "Section titles (Register, Verify)." },
+      "title": { "displayName": "Title", "purpose": "Piece titles, file names, sub-section heads." },
+      "body": { "displayName": "Body", "purpose": "Running copy; ledes capped at 34em in Ink Soft." },
+      "label": { "displayName": "Label", "purpose": "Uppercase tracked labels: nav, eyebrows, fields, buttons, steps, colophon." },
+      "mono": { "displayName": "Mono", "purpose": "Fingerprints, signatures, wallet addresses, always shown in full." }
+    },
+    "shadows": [
+      { "name": "gallery-lift", "value": "0 30px 70px rgba(48, 36, 22, .16)", "purpose": "Only on the design canvas in the protected viewer." },
+      { "name": "status-halo", "value": "0 0 0 4px rgba(91, 118, 80, .14)", "purpose": "Live network-OK dot." },
+      { "name": "step-pulse", "value": "0 0 0 6px rgba(139, 107, 67, .16)", "purpose": "Animated ring on the active registration step." }
+    ],
+    "motion": [
+      { "name": "ease-house", "value": "cubic-bezier(.2, .7, .1, 1)", "purpose": "Every transition and entrance." },
+      { "name": "rise", "value": "0.8s ease-house; from opacity 0, translateY(12px)", "purpose": "Views, seal and verdict entering." },
+      { "name": "underline-draw", "value": "right 0.45s ease-house", "purpose": "Current nav item underline." },
+      { "name": "button-invert", "value": "background/color 0.35s ease-house", "purpose": "Button hover inversion." },
+      { "name": "image-zoom", "value": "transform 1.4s ease-house, scale 1.035", "purpose": "Gallery piece hover." }
+    ],
+    "breakpoints": [
+      { "name": "stack", "value": "900px" },
+      { "name": "compact", "value": "640px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Ink block that empties to an outline on hover; the main ceremonial action (Seal on Solana).",
+      "html": "<button class=\"ds-btn-primary\">Seal on Solana</button>",
+      "css": ".ds-btn-primary { display: inline-flex; justify-content: center; align-items: center; width: 100%; padding: 19px 28px; border: 1px solid #1c1915; border-radius: 0; background: #1c1915; color: #faf7f1; font: 500 11px 'Jost', 'Helvetica Neue', Arial, sans-serif; letter-spacing: .32em; text-transform: uppercase; cursor: pointer; transition: background .35s cubic-bezier(.2,.7,.1,1), color .35s cubic-bezier(.2,.7,.1,1); } .ds-btn-primary:hover { background: transparent; color: #1c1915; } .ds-btn-primary:focus-visible { outline: 1px solid #8b6b43; outline-offset: 4px; } .ds-btn-primary:disabled { opacity: .45; cursor: progress; }"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Outlined secondary action that fills with ink on hover (Look up, Issue).",
+      "html": "<button class=\"ds-btn-quiet\">Look up</button>",
+      "css": ".ds-btn-quiet { padding: 14px 22px; border: 1px solid #1c1915; border-radius: 0; background: transparent; color: #1c1915; font: 500 11px 'Jost', 'Helvetica Neue', Arial, sans-serif; letter-spacing: .32em; text-transform: uppercase; cursor: pointer; transition: background .35s cubic-bezier(.2,.7,.1,1), color .35s cubic-bezier(.2,.7,.1,1); } .ds-btn-quiet:hover { background: #1c1915; color: #faf7f1; } .ds-btn-quiet:focus-visible { outline: 1px solid #8b6b43; outline-offset: 4px; }"
+    },
+    {
+      "name": "Underline Field",
+      "kind": "input",
+      "refersTo": "input-text",
+      "description": "Label above, underline-only input; bronze underline on focus.",
+      "html": "<label class=\"ds-field\"><span>Title</span><input type=\"text\" placeholder=\"Robe Nocturne\"></label>",
+      "css": ".ds-field { display: grid; gap: 8px; } .ds-field span { font: 400 10px 'Jost', sans-serif; letter-spacing: .26em; text-transform: uppercase; color: #6b6256; } .ds-field input { width: 100%; padding: 10px 0 12px; border: 0; border-bottom: 1px solid #d4c9b8; border-radius: 0; background: transparent; color: #1c1915; font: 300 18px 'Jost', sans-serif; transition: border-color .3s cubic-bezier(.2,.7,.1,1); } .ds-field input::placeholder { color: #968b7d; } .ds-field input:focus { outline: none; border-bottom-color: #8b6b43; }"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "description": "Tracked uppercase links; a bronze hairline draws under the current page.",
+      "html": "<nav class=\"ds-nav\"><a href=\"#\" aria-current=\"page\">Archive</a><a href=\"#\">Studio</a><a href=\"#\">Verify</a></nav>",
+      "css": ".ds-nav { display: flex; gap: 32px; } .ds-nav a { position: relative; padding: 6px 0; font: 400 11px 'Jost', sans-serif; letter-spacing: .28em; text-transform: uppercase; text-decoration: none; color: #6b6256; transition: color .3s cubic-bezier(.2,.7,.1,1); } .ds-nav a::after { content: ''; position: absolute; left: 0; right: 100%; bottom: 0; height: 1px; background: #8b6b43; transition: right .45s cubic-bezier(.2,.7,.1,1); } .ds-nav a:hover, .ds-nav a[aria-current=\"page\"] { color: #1c1915; } .ds-nav a[aria-current=\"page\"]::after { right: 0; } .ds-nav a:focus-visible { outline: 1px solid #8b6b43; outline-offset: 4px; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Flat vellum panel with a soft hairline; holds forms.",
+      "html": "<div class=\"ds-card\"><h3>Register a design</h3><p>Sealed on Solana the moment it is uploaded.</p></div>",
+      "css": ".ds-card { padding: 40px; background: #faf7f1; border: 1px solid #e3dbcd; border-radius: 0; } .ds-card h3 { margin: 0 0 8px; font: 300 34px/1.08 'Cormorant Garamond', serif; color: #1c1915; } .ds-card p { margin: 0; font: 300 16px/1.65 'Jost', sans-serif; color: #6b6256; }"
+    },
+    {
+      "name": "Archive Piece",
+      "kind": "custom",
+      "description": "3:4 vellum frame with meta below; Sealed mark in bronze.",
+      "html": "<div class=\"ds-piece\"><div class=\"ds-piece-frame\"></div><div class=\"ds-piece-meta\"><div><div class=\"ds-piece-title\">Robe Nocturne</div><div class=\"ds-piece-designer\">Atelier Test</div></div><span class=\"ds-piece-seal\">Sealed</span></div></div>",
+      "css": ".ds-piece { width: 240px; } .ds-piece-frame { aspect-ratio: 3 / 4; background: #faf7f1; border: 1px solid #e3dbcd; } .ds-piece-meta { padding-top: 18px; display: flex; justify-content: space-between; gap: 16px; align-items: baseline; } .ds-piece-title { font: 400 22px/1.2 'Cormorant Garamond', serif; color: #1c1915; } .ds-piece-designer { margin-top: 4px; font: 400 11px 'Jost', sans-serif; letter-spacing: .22em; text-transform: uppercase; color: #6b6256; } .ds-piece-seal { font: 400 10px 'Jost', sans-serif; letter-spacing: .2em; text-transform: uppercase; color: #8b6b43; }"
+    },
+    {
+      "name": "Registration Timeline",
+      "kind": "custom",
+      "description": "Vertical register of on-chain steps: open, pulsing bronze, solid bronze.",
+      "html": "<ol class=\"ds-timeline\"><li class=\"is-done\"><span>Fingerprinted</span></li><li class=\"is-active\"><span>Submitted</span></li><li><span>Sealed</span></li></ol>",
+      "css": ".ds-timeline { list-style: none; margin: 0; padding: 0; } .ds-timeline li { position: relative; padding: 0 0 26px 36px; color: #968b7d; font: 400 11px 'Jost', sans-serif; letter-spacing: .24em; text-transform: uppercase; } .ds-timeline li::before { content: ''; position: absolute; left: 5px; top: 3px; width: 9px; height: 9px; border: 1px solid #d4c9b8; border-radius: 50%; background: #faf7f1; } .ds-timeline li:not(:last-child)::after { content: ''; position: absolute; left: 9px; top: 16px; bottom: 2px; width: 1px; background: #e3dbcd; } .ds-timeline li.is-active, .ds-timeline li.is-done { color: #1c1915; } .ds-timeline li.is-active::before { border-color: #8b6b43; box-shadow: 0 0 0 6px rgba(139,107,67,.16); } .ds-timeline li.is-done::before { background: #8b6b43; border-color: #8b6b43; }"
+    },
+    {
+      "name": "Seal",
+      "kind": "custom",
+      "refersTo": "seal",
+      "description": "The registration result: bronze-bordered panel with a faint diagonal wash and links to proof.",
+      "html": "<div class=\"ds-seal\"><h3>Sealed on Solana</h3><p>Fingerprint recorded at slot 312,004,118.</p><a href=\"#\">View transaction</a></div>",
+      "css": ".ds-seal { padding: 32px; border: 1px solid #6c5332; background: linear-gradient(160deg, rgba(139,107,67,.07), transparent 60%), #faf7f1; } .ds-seal h3 { margin: 0 0 6px; font: 300 32px/1.1 'Cormorant Garamond', serif; color: #1c1915; } .ds-seal p { margin: 0 0 22px; font: 300 14px 'Jost', sans-serif; color: #6b6256; } .ds-seal a { color: #8b6b43; text-decoration: none; border-bottom: 1px solid rgba(139,107,67,.35); font: 300 14px 'Jost', sans-serif; } .ds-seal a:hover { border-bottom-color: #8b6b43; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Maison Archive",
+    "overview": "Couture looks and behaves like the archive of a couture house. Designs are catalogued, framed and kept with care, never merchandised. The ground is warm paper. Type is a light, high-contrast serif set large and loose. Structure comes from 1px rules, not boxes or shadows. One bronze accent marks what matters: a seal, an active step, a link to proof. The pages read like an exhibition catalogue rather than a dashboard.\n\nEvery interaction is editorial and ceremonial. Sealing a design or issuing a certificate should feel like signing an entry into a register, deliberate and unhurried. Motion is slow and eased: things rise into place and lines draw across. Nothing bounces. Density is low, whitespace is generous, and one idea sits on screen at a time.",
+    "keyCharacteristics": [
+      "Warm paper ground with a faint grain, never pure white.",
+      "A light serif for every headline and a tracked uppercase sans for labels.",
+      "Hairline 1px rules carry the structure. Corners are square.",
+      "One accent (Saddle Bronze), used sparingly.",
+      "A hairline monogram \"C\" as the house mark."
+    ],
+    "rules": [
+      { "name": "The Single Bronze Rule", "body": "Saddle Bronze is the only accent. It marks proof, progress and the current place, and nothing decorative. If a screen has more bronze than a few marks and one rule, it is overused.", "section": "colors" },
+      { "name": "The No-White Rule", "body": "Surfaces are Paper or Vellum. Pure #fff and pure black never appear.", "section": "colors" },
+      { "name": "The Serif Speaks Rule", "body": "Anything a person reads as a statement (headline, title, verdict, empty state) is in the serif. Anything that labels or operates is tracked uppercase Jost. Nothing sits in between.", "section": "typography" },
+      { "name": "The Proof Is Mono Rule", "body": "Cryptographic values are always in monospace and shown in full, so they can be compared by eye.", "section": "typography" },
+      { "name": "The Hung-Work Rule", "body": "Only the design itself casts a shadow. Cards, buttons and panels never do.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep every corner square and every border 1px.",
+      "Do use Saddle Bronze only for proof, progress and the current location.",
+      "Do set statements in light Cormorant Garamond and labels in tracked uppercase Jost (10 to 11px, 0.22 to 0.32em).",
+      "Do show hashes, signatures and addresses in full, in monospace.",
+      "Do animate with the house ease (cubic-bezier(.2, .7, .1, 1)), slowly (0.3 to 0.8s, 1.4s for image zoom), and respect prefers-reduced-motion.",
+      "Do give designs a 3:4 frame on Vellum with a Rule Soft hairline."
+    ],
+    "donts": [
+      "Don't add rounded corners, pill buttons or card shadows.",
+      "Don't introduce a second accent color, saturated status colors, pure white or pure black.",
+      "Don't use bold weights for headlines. The serif tops out at 400 to 500 and runs light (300) at display sizes.",
+      "Don't put text or badges over the artwork in the gallery. Meta sits below the frame.",
+      "Don't use bouncy or springy motion."
+    ]
+  }
+}

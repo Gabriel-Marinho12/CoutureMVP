@@ -47,6 +47,17 @@ CREATE INDEX IF NOT EXISTS certificates_design ON certificates(design_id);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
+# Columns added after the first release. Existing databases get them via
+# ALTER TABLE; always add new columns here (nullable), never edit SCHEMA alone.
+MIGRATIONS = {
+    "designs": {"owner": "TEXT"},
+    "certificates": {"order_id": "TEXT", "issued_by": "TEXT"},
+}
+POST_MIGRATION = """
+CREATE UNIQUE INDEX IF NOT EXISTS certificates_order ON certificates(design_id, order_id);
+CREATE INDEX IF NOT EXISTS certificates_issuer ON certificates(issued_by, created_at);
+"""
+
 # Lifecycle shared by designs and certificates.
 PENDING, CONFIRMED, FAILED, UNCONFIRMED = "pending", "confirmed", "failed", "unconfirmed"
 
@@ -75,6 +86,7 @@ class Design:
     error: str | None
     created_at: str
     registered_at: str | None
+    owner: str | None = None  # principal that registered it; None = legacy row
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -91,6 +103,8 @@ class Certificate:
     error: str | None
     created_at: str
     confirmed_at: str | None
+    order_id: str | None = None  # idempotency key: one certificate per (design, order)
+    issued_by: str | None = None  # principal that issued it
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -110,6 +124,15 @@ class Store:
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA foreign_keys=ON")
         self._db.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        for table, columns in MIGRATIONS.items():
+            existing = {row["name"] for row in self._db.execute(f"PRAGMA table_info({table})")}
+            for name, decl in columns.items():
+                if name not in existing:
+                    self._db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+        self._db.executescript(POST_MIGRATION)
 
     def close(self) -> None:
         self._db.close()
@@ -141,14 +164,18 @@ class Store:
     def preview_path(self, design_id: str) -> Path:
         return self.previews / f"{design_id}.webp"
 
+    def thumbnail_path(self, design_id: str) -> Path:
+        return self.previews / f"{design_id}.thumb.webp"
+
     # ---- designs -----------------------------------------------------------
 
     def claim_design(self, *, sha256: str, title: str, designer: str, filename: str,
-                     content_type: str, size_bytes: int) -> tuple[Design, bool]:
+                     content_type: str, size_bytes: int, owner: str) -> tuple[Design, bool]:
         """Create a pending design for this hash, or return the existing one.
 
         The boolean is True when the caller now owns registration: a new
-        record, or a previously failed one reset to pending.
+        record, or a previously failed one *of the same principal* reset to
+        pending. Another principal can never take over a hash, even a failed one.
         """
         with self._tx() as db:
             row = db.execute("SELECT * FROM designs WHERE sha256 = ?", (sha256,)).fetchone()
@@ -156,15 +183,15 @@ class Store:
                 design_id = new_id()
                 db.execute(
                     "INSERT INTO designs (id, sha256, title, designer, filename, content_type, size_bytes,"
-                    " status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (design_id, sha256, title, designer, filename, content_type, size_bytes, PENDING, now()),
+                    " status, created_at, owner) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (design_id, sha256, title, designer, filename, content_type, size_bytes, PENDING, now(), owner),
                 )
-            elif row["status"] == FAILED:
+            elif row["status"] == FAILED and row["owner"] in (None, owner):
                 design_id = row["id"]
                 db.execute(
                     "UPDATE designs SET title = ?, designer = ?, filename = ?, status = ?, error = NULL,"
-                    " signature = NULL WHERE id = ?",
-                    (title, designer, filename, PENDING, design_id),
+                    " signature = NULL, owner = ?, created_at = ? WHERE id = ?",
+                    (title, designer, filename, PENDING, owner, now(), design_id),
                 )
             else:
                 return _design(row), False
@@ -199,14 +226,39 @@ class Store:
 
     # ---- certificates ------------------------------------------------------
 
-    def create_certificate(self, design_id: str, owner: str) -> Certificate:
-        cert_id = new_id()
+    def create_certificate(self, design_id: str, owner: str, *, order_id: str,
+                           issued_by: str) -> tuple[Certificate, bool]:
+        """Insert a pending certificate, or return the one already issued for this order.
+
+        The boolean is True when a new record was created (the caller must mint it).
+        The UNIQUE(design_id, order_id) index makes this race-free.
+        """
         with self._tx() as db:
+            row = db.execute("SELECT * FROM certificates WHERE design_id = ? AND order_id = ?",
+                             (design_id, order_id)).fetchone()
+            if row is not None:
+                if row["status"] == FAILED and row["owner"] == owner:
+                    # Nothing landed on-chain: the same order may be retried.
+                    db.execute("UPDATE certificates SET status = ?, error = NULL, signature = NULL WHERE id = ?",
+                               (PENDING, row["id"]))
+                    return _certificate(db.execute("SELECT * FROM certificates WHERE id = ?", (row["id"],)).fetchone()), True
+                return _certificate(row), False
+            cert_id = new_id()
             db.execute(
-                "INSERT INTO certificates (id, design_id, owner, status, created_at) VALUES (?, ?, ?, ?, ?)",
-                (cert_id, design_id, owner, PENDING, now()),
+                "INSERT INTO certificates (id, design_id, owner, status, created_at, order_id, issued_by)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (cert_id, design_id, owner, PENDING, now(), order_id, issued_by),
             )
-            return _certificate(db.execute("SELECT * FROM certificates WHERE id = ?", (cert_id,)).fetchone())
+            return _certificate(db.execute("SELECT * FROM certificates WHERE id = ?", (cert_id,)).fetchone()), True
+
+    def count_certificates_for(self, design_id: str) -> int:
+        row = self._one("SELECT COUNT(*) AS n FROM certificates WHERE design_id = ? AND status != ?", design_id, FAILED)
+        return int(row["n"])
+
+    def count_certificates_issued_since(self, issued_by: str, since: str) -> int:
+        row = self._one("SELECT COUNT(*) AS n FROM certificates WHERE issued_by = ? AND created_at >= ?",
+                        issued_by, since)
+        return int(row["n"])
 
     def update_certificate(self, cert_id: str, **fields: Any) -> Certificate:
         if fields.get("status") == CONFIRMED:

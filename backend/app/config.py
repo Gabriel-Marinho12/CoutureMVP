@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
@@ -19,6 +21,13 @@ DEFAULT_RPC = {
     "localnet": "http://127.0.0.1:8899",  # solana-test-validator
 }
 
+# A principal is the designer/studio an access key acts for. Every design and
+# certificate records the principal that created it, and ownership checks
+# compare against it (see SECURITY RULES in CLAUDE.md).
+PRINCIPAL = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+DEFAULT_PRINCIPAL = "default"
+DEV_PRINCIPAL = "dev"  # used for every request when auth is disabled (development only)
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -27,7 +36,7 @@ class Settings:
     commitment: str
     keypair_path: Path
     data_dir: Path
-    api_keys: frozenset[str]
+    api_keys: Mapping[str, str]  # access key -> principal
     cors_origins: tuple[str, ...]
     public_base_url: str
     max_upload_bytes: int
@@ -35,6 +44,12 @@ class Settings:
     node_bin: str
     merkle_tree: str | None
     frontend_dir: Path | None
+    cert_limit_per_hour: int = 30
+    max_certs_per_design: int = 500
+
+    @property
+    def expose_docs(self) -> bool:
+        return self.cluster != "mainnet-beta"
 
     @property
     def auth_enabled(self) -> bool:
@@ -60,6 +75,23 @@ def _csv(value: str | None) -> tuple[str, ...]:
     return tuple(item.strip() for item in (value or "").split(",") if item.strip())
 
 
+def parse_api_keys(value: str | None) -> dict[str, str]:
+    """`principal=key,principal2=key2`. A bare `key` acts for the `default` principal."""
+    keys: dict[str, str] = {}
+    for entry in _csv(value):
+        principal, sep, key = entry.partition("=")
+        if not sep:
+            principal, key = DEFAULT_PRINCIPAL, entry
+        principal, key = principal.strip(), key.strip()
+        if not PRINCIPAL.match(principal):
+            raise ValueError(f"COUTURE_API_KEYS: invalid principal {principal!r} (use lowercase a-z, 0-9, _ or -)")
+        if len(key) < 16 or not key.isascii() or not key.isprintable():
+            raise ValueError(f"COUTURE_API_KEYS: the key for {principal!r} must be 16+ printable ASCII characters")
+        if key in keys:
+            raise ValueError("COUTURE_API_KEYS: the same key is assigned to two principals")
+        keys[key] = principal
+    return keys
+
 def load_settings() -> Settings:
     load_dotenv(BACKEND_DIR / ".env")
     env = os.environ.get
@@ -77,7 +109,7 @@ def load_settings() -> Settings:
         commitment=env("SOLANA_COMMITMENT", "confirmed"),
         keypair_path=Path(env("COUTURE_KEYPAIR_PATH", str(BACKEND_DIR / ".secrets" / "platform-keypair.json"))),
         data_dir=data_dir,
-        api_keys=frozenset(_csv(env("COUTURE_API_KEYS"))),
+        api_keys=parse_api_keys(env("COUTURE_API_KEYS")),
         cors_origins=_csv(env("COUTURE_CORS_ORIGINS")) or ("https://gabriel-marinho12.github.io",),
         public_base_url=env("COUTURE_PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/"),
         max_upload_bytes=int(env("COUTURE_MAX_UPLOAD_MB", "50")) * 1024 * 1024,
@@ -85,6 +117,8 @@ def load_settings() -> Settings:
         node_bin=env("COUTURE_NODE_BIN", "node"),
         merkle_tree=env("COUTURE_MERKLE_TREE") or None,
         frontend_dir=frontend_dir if frontend_dir.is_dir() else None,
+        cert_limit_per_hour=int(env("COUTURE_CERT_LIMIT_PER_HOUR", "30")),
+        max_certs_per_design=int(env("COUTURE_MAX_CERTS_PER_DESIGN", "500")),
     )
 
     if settings.cluster == "mainnet-beta" and not settings.auth_enabled:

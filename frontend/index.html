@@ -33,7 +33,8 @@
         <h1 class="display">Every design,<br><em>provably yours.</em></h1>
         <p class="lede">Each piece in the collection is fingerprinted and sealed on Solana the moment it is created. What you see here is rendered, never served.</p>
       </div>
-      <div class="gallery" id="gallery" aria-live="polite"></div>
+      <div class="gallery-status" id="gallery-status" role="status"></div>
+      <div class="gallery" id="gallery"></div>
       <p class="empty" id="gallery-empty" hidden>The collection is waiting for its first piece. <a href="#register">Register a design</a>.</p>
     </section>
 
@@ -73,11 +74,13 @@
               <input type="text" name="designer" id="designer" maxlength="120" placeholder="Atelier Marinho" required>
             </label>
             <label class="field" id="key-field" hidden>
-              <span>Access key</span>
-              <input type="password" name="key" id="key" autocomplete="off" placeholder="Provided by Couture">
+              <span>Studio access key</span>
+              <input type="password" name="key" id="key" autocomplete="off" placeholder="Provided by Couture with your studio account" aria-describedby="key-status">
+              <span class="field-status" id="key-status" role="status"></span>
             </label>
           </div>
 
+          <p class="pre-seal" id="pre-seal">Sealing publishes this file's fingerprint on Solana, where it cannot be removed. Your file and your name stay off-chain. Keep this exact file: any re-export changes its fingerprint.</p>
           <button class="button" type="submit" id="submit">Seal on Solana</button>
           <p class="form-note" id="form-note" role="status"></p>
 
@@ -123,6 +126,7 @@
     <button class="viewer-close" id="viewer-close" aria-label="Close">×</button>
     <div class="viewer-stage" id="viewer-stage">
       <canvas id="viewer-canvas" aria-label="Protected rendering of the design"></canvas>
+      <p class="stage-status" id="viewer-status" role="status"></p>
       <div class="viewer-shield" id="viewer-shield"></div>
       <div class="viewer-veil" id="viewer-veil">Rendering paused</div>
     </div>
@@ -132,11 +136,30 @@
       <dl class="facts" id="viewer-facts"></dl>
       <div class="certify" id="certify" hidden>
         <h4>Issue a certificate of authenticity</h4>
-        <p>Mints a compressed NFT to the buyer's wallet, binding the physical piece to this registration.</p>
-        <form class="inline-form" id="certify-form">
-          <input type="text" id="certify-owner" placeholder="Buyer's Solana wallet" spellcheck="false" autocomplete="off" aria-label="Buyer's Solana wallet">
-          <button class="button button-quiet" type="submit">Issue</button>
+        <p>For one sale of this piece: a certificate (compressed NFT) is sent to the buyer's wallet and linked to this registration.</p>
+
+        <div id="certify-locked" hidden>
+          <p>Only the designer who registered this piece can issue its certificates. Enter your studio access key to continue.</p>
+          <form class="inline-form" id="unlock-form">
+            <input type="password" id="unlock-key" placeholder="Studio access key" autocomplete="off" aria-label="Studio access key">
+            <button class="button button-quiet" type="submit">Unlock</button>
+          </form>
+        </div>
+
+        <form class="certify-form" id="certify-form" novalidate>
+          <label class="field">
+            <span>Buyer's Solana wallet</span>
+            <input type="text" id="certify-owner" placeholder="Wallet address" spellcheck="false" autocomplete="off" required>
+          </label>
+          <label class="field">
+            <span>Order reference</span>
+            <input type="text" id="certify-order" placeholder="e.g. order-1042" spellcheck="false" autocomplete="off" maxlength="64" required aria-describedby="certify-order-hint">
+            <span class="field-hint" id="certify-order-hint">One certificate per order. Letters, numbers and . _ : - only.</span>
+          </label>
+          <button class="button button-quiet" type="submit">Review</button>
         </form>
+
+        <div class="review" id="certify-review" hidden></div>
         <p class="form-note" id="certify-note" role="status"></p>
       </div>
     </aside>

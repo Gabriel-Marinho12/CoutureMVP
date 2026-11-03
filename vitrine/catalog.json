@@ -1,0 +1,128 @@
+{
+  "_leia_me": "Catálogo da vitrine da Fase 0. Edite este arquivo e rode `python vitrine/build.py`. Tudo com \"exemplo\": true aparece com o selo 'Exemplo' e bloqueia a publicação (o build avisa). Preços em reais, sem centavos. Fotos: caminhos relativos a vitrine/ (ex.: fotos/robe-1.jpg), em retrato 3:4.",
+  "marca": {
+    "nome": "Couture",
+    "frase": "Desenhos de novos designers, feitos à mão para você.",
+    "descricao": "Peças autorais de designers independentes, produzidas sob encomenda em edição numerada. Cada designer recebe parte de cada venda.",
+    "url_publica": null,
+    "whatsapp": null,
+    "instagram": null,
+    "email": null,
+    "cnpj": null,
+    "razao_social": null,
+    "endereco": null,
+    "prazo_padrao_semanas": 4,
+    "desconto_pix_percentual": 5,
+    "parcelas_sem_juros": 6
+  },
+  "designers": [
+    {
+      "slug": "helena-vasques",
+      "nome": "Helena Vasques",
+      "exemplo": true,
+      "cidade": "São José dos Campos, SP",
+      "formacao": "Estudante de Design de Moda",
+      "bio": "Helena desenha a partir da arquitetura do Vale do Paraíba: linhas retas, volumes que se abrem com o movimento e tecidos naturais. Esta é a sua primeira coleção produzida.",
+      "foto": null
+    },
+    {
+      "slug": "theo-amaral",
+      "nome": "Theo Amaral",
+      "exemplo": true,
+      "cidade": "São Paulo, SP",
+      "formacao": "Ilustrador e designer autodidata",
+      "bio": "Theo vem da ilustração. Suas peças levam estampas desenhadas à mão e cortes simples, pensados para que o desenho seja o centro.",
+      "foto": null
+    }
+  ],
+  "pecas": [
+    {
+      "slug": "vestido-varanda",
+      "nome": "Vestido Varanda",
+      "designer": "helena-vasques",
+      "exemplo": true,
+      "preco": 1480,
+      "edicao": 30,
+      "prazo_semanas": 4,
+      "categoria": "Vestidos",
+      "descricao": "Vestido midi de linho com pregas largas na cintura que se abrem ao caminhar. Decote reto e costas em V, com fechamento por botões forrados.",
+      "composicao": "100% linho. Forro 100% algodão.",
+      "cuidados": "Lavar à mão em água fria. Secar à sombra. Passar do avesso em temperatura média.",
+      "tamanhos": [
+        { "tamanho": "PP", "busto": 80, "cintura": 62, "quadril": 88 },
+        { "tamanho": "P", "busto": 84, "cintura": 66, "quadril": 92 },
+        { "tamanho": "M", "busto": 88, "cintura": 70, "quadril": 96 },
+        { "tamanho": "G", "busto": 94, "cintura": 76, "quadril": 102 },
+        { "tamanho": "GG", "busto": 100, "cintura": 82, "quadril": 108 }
+      ],
+      "opcoes": [
+        { "nome": "Cor do linho", "valores": ["Cru", "Areia", "Grafite"] },
+        { "nome": "Comprimento", "valores": ["Midi", "Longo"] }
+      ],
+      "fotos": []
+    },
+    {
+      "slug": "camisa-janela",
+      "nome": "Camisa Janela",
+      "designer": "helena-vasques",
+      "exemplo": true,
+      "preco": 890,
+      "edicao": 40,
+      "prazo_semanas": 3,
+      "categoria": "Camisas",
+      "descricao": "Camisa ampla de popeline com recorte vazado nas costas, emoldurado por pesponto aparente. Punhos longos com três botões.",
+      "composicao": "100% algodão egípcio.",
+      "cuidados": "Lavar à máquina no ciclo delicado, em água fria. Não usar secadora.",
+      "tamanhos": [
+        { "tamanho": "P", "busto": 104, "comprimento": 70 },
+        { "tamanho": "M", "busto": 110, "comprimento": 72 },
+        { "tamanho": "G", "busto": 116, "comprimento": 74 }
+      ],
+      "opcoes": [
+        { "nome": "Iniciais bordadas no punho", "valores": ["Sem iniciais", "Com iniciais"] }
+      ],
+      "fotos": []
+    },
+    {
+      "slug": "saia-mapa",
+      "nome": "Saia Mapa",
+      "designer": "theo-amaral",
+      "exemplo": true,
+      "preco": 1120,
+      "edicao": 25,
+      "prazo_semanas": 4,
+      "categoria": "Saias",
+      "descricao": "Saia lápis em sarja de seda com estampa desenhada à mão por Theo, inspirada nos mapas antigos da cidade. Fenda posterior e cós alto.",
+      "composicao": "100% seda. Forro 100% viscose.",
+      "cuidados": "Lavagem a seco.",
+      "tamanhos": [
+        { "tamanho": "36", "cintura": 66, "quadril": 92 },
+        { "tamanho": "38", "cintura": 70, "quadril": 96 },
+        { "tamanho": "40", "cintura": 74, "quadril": 100 },
+        { "tamanho": "42", "cintura": 78, "quadril": 104 }
+      ],
+      "opcoes": [
+        { "nome": "Fundo da estampa", "valores": ["Marfim", "Noite"] }
+      ],
+      "fotos": []
+    },
+    {
+      "slug": "lenco-traco",
+      "nome": "Lenço Traço",
+      "designer": "theo-amaral",
+      "exemplo": true,
+      "preco": 540,
+      "edicao": 50,
+      "prazo_semanas": 3,
+      "categoria": "Acessórios",
+      "descricao": "Lenço quadrado de twill de seda com bainha enrolada à mão. A estampa reproduz um único traço contínuo, desenhado sem tirar a caneta do papel.",
+      "composicao": "100% seda. 90 × 90 cm.",
+      "cuidados": "Lavagem a seco ou à mão com sabão neutro.",
+      "tamanhos": [
+        { "tamanho": "Único", "dimensoes": "90 × 90 cm" }
+      ],
+      "opcoes": [],
+      "fotos": []
+    }
+  ]
+}

@@ -10,3 +10,14 @@ backend/data/
 backend/.secrets/
 .pytest_cache/
 backend/.localnet/
+
+# Local, per-machine agent/tool settings
+.claude/settings.local.json
+.impeccable/config.local.json
+# Third-party skills installed locally (not part of this project)
+.claude/skills/impeccable/
+.claude/skills/cloudflare-audit/
+.claude/agents/
+# Transient design-tool artifacts
+.impeccable/mocks/
+.impeccable/questions/
