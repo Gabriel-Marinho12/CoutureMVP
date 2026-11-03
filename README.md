@@ -86,7 +86,7 @@ Tests: `cd backend && ../.venv/bin/python -m pytest`.
 ## Deployment notes
 
 - **Frontend:** GitHub Pages serves `frontend/` (the repository root and the old `frontend_poc/` redirect there). Without a backend it runs in demo mode. Point `frontend/config.js` at a deployed API and add the Pages origin to `COUTURE_CORS_ORIGINS`.
-- **Backend:** any host that runs Python and Node (a container, Fly.io, Render, a VM). Persist `COUTURE_DATA_DIR`, inject the wallet via `COUTURE_KEYPAIR`, set `COUTURE_API_KEYS`, and list a dedicated RPC provider first in `SOLANA_RPC_URLS`.
+- **Backend:** any host that runs Python and Node (a container, Fly.io, Render, a VM). Persist `COUTURE_DATA_DIR`, inject the wallet via `COUTURE_KEYPAIR`, set `COUTURE_API_KEYS` as one `principal=key` pair per designer (see `backend/.env.example`), and list a dedicated RPC provider first in `SOLANA_RPC_URLS`. Put a reverse proxy in front with a body-size limit and per-IP rate limiting (see `CLAUDE.md` §3.2).
 - **Mainnet:** set `SOLANA_CLUSTER=mainnet-beta`. The server refuses to start there without access keys.
 
 ## Not in this MVP yet

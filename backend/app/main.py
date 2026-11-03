@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import tempfile
+import unicodedata
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -29,18 +30,93 @@ from pydantic import BaseModel, Field
 from solders.pubkey import Pubkey
 
 from . import imaging
-from .config import Settings, load_settings
-from .registration import Registrar
+from .config import DEV_PRINCIPAL, Settings, load_settings
+from .registration import CertificateRefused, Registrar
 from .solana.cnft import CnftMinter, CnftUnavailable
 from .solana.rpc import SolanaError, SolanaRpc
 from .solana.wallet import load_keypair
-from .storage import CONFIRMED, Design, Store
+from .storage import CONFIRMED, FAILED, Design, Store
 
 log = logging.getLogger("couture")
 
 SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 CHUNK = 1024 * 1024
 LOW_BALANCE_LAMPORTS = 10_000_000  # 0.01 SOL ≈ 2,000 registrations
+SMALL_BODY_LIMIT = 64 * 1024  # every POST except the design upload carries a small JSON body
+UPLOAD_PATH = "/api/designs"
+ORDER_ID = r"^[A-Za-z0-9._:-]{1,64}$"
+
+
+def principal_for(settings: Settings, authorization: str | None) -> str | None:
+    """The principal an Authorization header acts for, or None when it is not valid.
+
+    Compares bytes (str compare_digest raises on non-ASCII) and checks every
+    key without returning early, so timing does not reveal which key matched.
+    """
+    if not settings.auth_enabled:
+        return DEV_PRINCIPAL
+    token = (authorization or "").removeprefix("Bearer ").strip().encode("utf-8", "replace")
+    found = None
+    for key, principal in settings.api_keys.items():
+        if hmac.compare_digest(token, key.encode()):
+            found = principal
+    return found
+
+
+class WriteGuard:
+    """ASGI middleware enforced *before* any request body is read.
+
+    FastAPI parses multipart/JSON bodies before it resolves dependencies, so a
+    `Depends(require_key)` alone lets an unauthenticated client stream an
+    unbounded upload to disk before getting its 401. For every POST under
+    /api this guard therefore (1) checks the access key, (2) requires a
+    Content-Length (no chunked bodies) and (3) bounds it. The server stops
+    reading at Content-Length, so the declared size is a hard cap.
+    """
+
+    def __init__(self, app: Any, settings: Settings):
+        self.app = app
+        self.settings = settings
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] != "http" or scope["method"] != "POST" or not scope["path"].startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope["headers"]}
+        if principal_for(self.settings, headers.get("authorization")) is None:
+            await _reject(send, 401, "a valid access key is required", {"www-authenticate": "Bearer"})
+            return
+        if "transfer-encoding" in headers or "content-length" not in headers:
+            await _reject(send, 411, "a Content-Length header is required")
+            return
+        try:
+            declared = int(headers["content-length"])
+        except ValueError:
+            await _reject(send, 400, "invalid Content-Length")
+            return
+        limit = self.settings.max_upload_bytes + CHUNK if scope["path"] == UPLOAD_PATH else SMALL_BODY_LIMIT
+        if declared < 0 or declared > limit:
+            await _reject(send, 413, f"request body is limited to {limit // 1024} KB")
+            return
+        await self.app(scope, receive, send)
+
+
+async def _reject(send: Any, status: int, detail: str, extra: dict[str, str] | None = None) -> None:
+    body = json.dumps({"detail": detail}).encode()
+    headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]
+    headers += [(k.encode(), v.encode()) for k, v in (extra or {}).items()]
+    await send({"type": "http.response.start", "status": status, "headers": headers})
+    await send({"type": "http.response.body", "body": body})
+
+
+def clean_text(value: str, field: str) -> str:
+    """NFC-normalise and drop control/format characters (incl. bidi overrides
+    used to spoof designer names in wallets). Raises 422 if nothing is left."""
+    text = "".join(ch for ch in unicodedata.normalize("NFC", value) if unicodedata.category(ch) not in ("Cc", "Cf"))
+    text = " ".join(text.split())
+    if not text:
+        raise HTTPException(422, f"{field} must contain visible characters")
+    return text
 
 
 def get_registrar(request: Request) -> Registrar:
@@ -50,8 +126,24 @@ def get_registrar(request: Request) -> Registrar:
 Reg = Annotated[Registrar, Depends(get_registrar)]
 
 
+def require_principal(request: Request, authorization: Annotated[str | None, Header()] = None) -> str:
+    # Second line of defence (WriteGuard already ran); also yields the principal.
+    # Module level on purpose: with `from __future__ import annotations` FastAPI
+    # resolves annotations in module globals, so aliases defined inside
+    # create_app() silently become query parameters (422).
+    principal = principal_for(request.app.state.settings, authorization)
+    if principal is None:
+        raise HTTPException(401, "a valid access key is required", headers={"WWW-Authenticate": "Bearer"})
+    return principal
+
+
+Principal = Annotated[str, Depends(require_principal)]
+
+
 class CertificateRequest(BaseModel):
-    owner: str = Field(description="Buyer's Solana wallet address")
+    owner: str = Field(description="Buyer's Solana wallet address", max_length=64)
+    order_id: str = Field(pattern=ORDER_ID, description="Idempotency key: the sale this certificate belongs to. "
+                          "Retrying with the same order_id never mints twice.")
 
 
 def create_app(settings: Settings | None = None, *, registrar: Registrar | None = None) -> FastAPI:
@@ -77,9 +169,15 @@ def create_app(settings: Settings | None = None, *, registrar: Registrar | None 
             await rpc.aclose()
             store.close()
 
-    app = FastAPI(title="Couture", version="1.0.0", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
+    docs = settings.expose_docs
+    app = FastAPI(title="Couture", version="1.0.0", lifespan=lifespan,
+                  docs_url="/api/docs" if docs else None, redoc_url=None,
+                  openapi_url="/api/openapi.json" if docs else None)
     if registrar is not None:
         app.state.registrar = registrar
+    # Order matters: the last middleware added runs first. CORS must wrap the
+    # guard so browser preflights (OPTIONS) and 401/413 answers carry CORS headers.
+    app.add_middleware(WriteGuard, settings=settings)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
@@ -87,12 +185,7 @@ def create_app(settings: Settings | None = None, *, registrar: Registrar | None 
         allow_headers=["Authorization", "Content-Type"],
     )
 
-    def require_key(authorization: Annotated[str | None, Header()] = None) -> None:
-        if not settings.auth_enabled:
-            return
-        token = (authorization or "").removeprefix("Bearer ").strip()
-        if not any(hmac.compare_digest(token, key) for key in settings.api_keys):
-            raise HTTPException(401, "a valid access key is required", headers={"WWW-Authenticate": "Bearer"})
+    app.state.settings = settings
 
     # ---- status -------------------------------------------------------------
 
@@ -113,27 +206,32 @@ def create_app(settings: Settings | None = None, *, registrar: Registrar | None 
             "balance_sol": lamports / 1e9 if lamports is not None else None,
             "auth_required": settings.auth_enabled,
             "certificates_ready": bool(registrar.merkle_tree()) and registrar.minter.check_installed() is None,
+            "max_upload_mb": settings.max_upload_bytes // (1024 * 1024),
         }
+
+    @app.get("/api/session")
+    async def session(principal: Principal) -> dict[str, str]:
+        """Checks an access key without side effects (the studio validates keys on entry)."""
+        return {"principal": principal}
 
     # ---- designs ------------------------------------------------------------
 
-    @app.post("/api/designs", dependencies=[Depends(require_key)])
+    @app.post(UPLOAD_PATH)
     async def register_design(
         registrar: Reg,
+        principal: Principal,
         file: Annotated[UploadFile, File()],
         title: Annotated[str, Form(min_length=1, max_length=120)],
         designer: Annotated[str, Form(min_length=1, max_length=120)],
-        request: Request,
     ) -> StreamingResponse:
-        declared = int(request.headers.get("content-length") or 0)
-        if declared > settings.max_upload_bytes + CHUNK:
-            raise HTTPException(413, f"files are limited to {settings.max_upload_bytes // (1024 * 1024)} MB")
+        title, designer = clean_text(title, "title"), clean_text(designer, "designer")
         sha256, size, tmp_path = await _spool(file, registrar.store.tmp, settings.max_upload_bytes)
 
         design, owns = registrar.store.claim_design(
-            sha256=sha256, title=title.strip(), designer=designer.strip(),
-            filename=os.path.basename(file.filename or "design"),
-            content_type=file.content_type or "application/octet-stream", size_bytes=size,
+            sha256=sha256, title=title, designer=designer,
+            filename=clean_text(os.path.basename(file.filename or "design"), "filename")[:200],
+            content_type=(file.content_type or "application/octet-stream")[:100], size_bytes=size,
+            owner=principal,
         )
         if owns:
             os.replace(tmp_path, registrar.store.original_path(sha256))
@@ -148,7 +246,7 @@ def create_app(settings: Settings | None = None, *, registrar: Registrar | None 
             yield _line({"event": "hashed", "sha256": sha256, "design_id": design.id})
             if not owns:
                 yield _line({"event": "duplicate", "design": registrar.design_view(design)})
-                if job is None or design.status == CONFIRMED:
+                if job is None or design.status in (CONFIRMED, FAILED):
                     return
             async for event in job.follow():
                 yield _line(event)
@@ -198,24 +296,40 @@ def create_app(settings: Settings | None = None, *, registrar: Registrar | None 
         design = _design_or_404(registrar, design_id)
         if not design.has_preview:
             raise HTTPException(404, "this design has no visual preview")
-        data = await asyncio.to_thread(imaging.thumbnail, registrar.store.preview_path(design.id))
-        return Response(data, media_type="image/webp", headers={"Cache-Control": "public, max-age=86400"})
+        # Rendered once and cached on disk: this endpoint is public, so it must not
+        # re-encode an image per request (unauthenticated CPU exhaustion).
+        cached = registrar.store.thumbnail_path(design.id)
+        if not cached.exists():
+            data = await asyncio.to_thread(imaging.thumbnail, registrar.store.preview_path(design.id))
+            tmp = cached.with_suffix(f".{os.getpid()}.tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, cached)
+        return Response(cached.read_bytes(), media_type="image/webp",
+                        headers={"Cache-Control": "public, max-age=86400"})
 
     # ---- certificates -------------------------------------------------------
 
-    @app.post("/api/designs/{design_id}/certificates", dependencies=[Depends(require_key)], status_code=201)
-    async def issue_certificate(design_id: str, body: CertificateRequest, registrar: Reg) -> JSONResponse:
+    @app.post("/api/designs/{design_id}/certificates", status_code=201)
+    async def issue_certificate(design_id: str, body: CertificateRequest, registrar: Reg,
+                                principal: Principal) -> JSONResponse:
         design = _design_or_404(registrar, design_id)
         if design.status != CONFIRMED:
             raise HTTPException(409, "the design must be registered on-chain before certificates are issued")
+        owner = body.owner.strip()
         try:
-            Pubkey.from_string(body.owner.strip())
+            Pubkey.from_string(owner)
         except ValueError:
             raise HTTPException(422, "owner is not a valid Solana address") from None
         try:
-            cert = await registrar.issue_certificate(design, body.owner.strip())
+            cert, created = await registrar.issue_certificate(design, owner, order_id=body.order_id,
+                                                              principal=principal)
+        except CertificateRefused as exc:
+            raise HTTPException(exc.status, str(exc)) from None
         except CnftUnavailable as exc:
-            raise HTTPException(503, f"certificates are not configured: {exc}") from exc
+            log.error("certificates unavailable: %s", exc)
+            raise HTTPException(503, "certificates are not available right now") from None
+        if not created:  # idempotent replay: same order, same answer, nothing minted
+            return JSONResponse(registrar.certificate_view(cert), status_code=200)
         status = {"confirmed": 201, "unconfirmed": 202}.get(cert.status, 502)
         return JSONResponse(registrar.certificate_view(cert), status_code=status)
 
