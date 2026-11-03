@@ -4,6 +4,9 @@
   const API = window.COUTURE_CONFIG?.apiBase;
   const DEMO = API === null || API === undefined;
   const KEY_STORAGE = 'couture.accessKey';
+  const DEFAULT_MAX_UPLOAD_MB = 50;
+  const ORDER_REF = /^[A-Za-z0-9._:-]{1,64}$/;
+  const WALLET = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   const $ = (selector, root = document) => root.querySelector(selector);
 
   const DEMO_PIECES = [
@@ -18,14 +21,16 @@
     url: `https://images.unsplash.com/photo-${photo}?auto=format&fit=crop&w=900&h=1200&q=80`,
   }));
 
-  const state = { health: null, accessKey: readKey() };
+  // keyStatus: 'none' (no key stored), 'unchecked', 'valid'. A key is only ever
+  // stored after the API accepted it (GET /api/session has no side effects).
+  const state = { health: null, accessKey: readKey(), keyStatus: readKey() ? 'unchecked' : 'none' };
 
   // ---- utilities ----------------------------------------------------------
 
   function readKey() {
     try { return localStorage.getItem(KEY_STORAGE) || ''; } catch { return ''; }
   }
-  function saveKey(value) {
+  function storeKey(value) {
     try { value ? localStorage.setItem(KEY_STORAGE, value) : localStorage.removeItem(KEY_STORAGE); } catch { /* private mode */ }
   }
 
@@ -44,29 +49,118 @@
   }
 
   const link = (href, text) => el('a', { href, target: '_blank', rel: 'noopener' }, text);
-  const short = (value, head = 10, tail = 8) => (value && value.length > head + tail + 1 ? `${value.slice(0, head)}…${value.slice(-tail)}` : value);
   const formatDate = (iso) => (iso ? new Intl.DateTimeFormat(undefined, { dateStyle: 'long', timeStyle: 'short' }).format(new Date(iso)) : '—');
   const formatBytes = (n) => (n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
+  const networkName = () => (state.health?.cluster ? `Solana ${state.health.cluster}` : 'Solana');
+
+  // Cryptographic values are shown in full (DESIGN.md: The Proof Is Mono) with a copy control.
+  function proof(value) {
+    if (!value) return '—';
+    const button = el('button', { type: 'button', class: 'copy', 'aria-label': 'Copy to clipboard' }, 'Copy');
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(value);
+        button.textContent = 'Copied';
+      } catch {
+        button.textContent = 'Select to copy';
+      }
+      setTimeout(() => { button.textContent = 'Copy'; }, 1800);
+    });
+    return el('span', { class: 'proof' }, el('code', {}, value), button);
+  }
 
   async function sha256Hex(file) {
     const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
     return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
   }
 
-  async function api(path, options = {}) {
+  async function api(path, { key = state.accessKey, ...options } = {}) {
     const headers = { ...(options.headers || {}) };
-    if (state.accessKey) headers.Authorization = `Bearer ${state.accessKey}`;
-    const response = await fetch(`${API}${path}`, { ...options, headers });
+    if (key) headers.Authorization = `Bearer ${key}`;
+    let response;
+    try {
+      response = await fetch(`${API}${path}`, { ...options, headers });
+    } catch {
+      const error = new Error('network');
+      error.status = 0;
+      throw error;
+    }
     if (!response.ok) {
-      let detail = `${response.status} ${response.statusText}`;
-      try { const body = await response.json(); detail = typeof body.detail === 'string' ? body.detail : body.detail?.[0]?.msg || detail; } catch { /* not JSON */ }
-      const error = new Error(detail);
+      let detail = '';
+      try { const body = await response.json(); detail = typeof body.detail === 'string' ? body.detail : ''; } catch { /* not JSON */ }
+      const error = new Error(detail || `HTTP ${response.status}`);
       error.status = response.status;
-      error.body = response;
+      error.detail = detail;
       throw error;
     }
     return response;
   }
+
+  // One place that turns failures into sentences people can act on. Raw
+  // server text is only used for 4xx answers the API words for humans.
+  function explain(error, what = 'This request') {
+    switch (error.status) {
+      case 0: return "Couture's server can't be reached. Check your connection and try again.";
+      case 401: return 'Your studio access key was not accepted. Enter it again.';
+      case 403: return error.detail || "You don't have permission to do this.";
+      case 404: return error.detail || 'Not found.';
+      case 409:
+      case 422: return error.detail || `${what} was refused. Check the details and try again.`;
+      case 411:
+      case 413: return error.detail || 'The file is too large.';
+      case 429: return error.detail || 'Too many requests. Wait a moment and try again.';
+      case 503: return 'This service is temporarily unavailable. Try again in a few minutes.';
+      default: return `${what} could not be completed (server error). Try again in a moment.`;
+    }
+  }
+
+  // ---- studio access key --------------------------------------------------
+
+  async function verifyKey(value) {
+    if (DEMO || !state.health?.auth_required) return true;
+    try {
+      await api('/api/session', { key: value });
+    } catch (error) {
+      if (error.status === 401) return false;
+      throw error;
+    }
+    return true;
+  }
+
+  async function setKey(value) {
+    value = value.trim();
+    if (!value) { forgetKey(); return false; }
+    const ok = await verifyKey(value);
+    if (ok) {
+      state.accessKey = value;
+      state.keyStatus = 'valid';
+      storeKey(value);
+      $('#key').value = value;
+    }
+    return ok;
+  }
+
+  function forgetKey() {
+    state.accessKey = '';
+    state.keyStatus = 'none';
+    storeKey('');
+    $('#key').value = '';
+  }
+
+  // Register's key field saves as soon as the key is entered, not on submit.
+  $('#key').addEventListener('change', async (event) => {
+    const status = $('#key-status');
+    status.className = 'field-status';
+    status.textContent = 'Checking key…';
+    try {
+      const ok = await setKey(event.target.value);
+      status.className = `field-status${ok ? '' : ' is-error'}`;
+      status.textContent = ok ? 'Key accepted and saved on this device.' : (event.target.value.trim() ? 'This key was not accepted.' : '');
+    } catch (error) {
+      status.className = 'field-status is-error';
+      status.textContent = explain(error, 'Checking the key');
+    }
+  });
 
   // ---- routing ------------------------------------------------------------
 
@@ -94,35 +188,53 @@
       return;
     }
     try {
-      const health = await (await api('/api/health')).json();
+      const health = await (await api('/api/health', { key: '' })).json();
       state.health = health;
       node.dataset.state = health.status === 'ok' ? 'ok' : 'degraded';
-      label.textContent = `Solana ${health.cluster}`;
-      node.title = health.network === 'ok'
-        ? `Platform wallet ${health.wallet} · ${health.balance_sol?.toFixed(4)} SOL`
-        : 'Solana network unreachable';
+      label.textContent = networkName();
+      node.title = health.network === 'ok' ? `Connected to ${networkName()}` : 'Solana network unreachable';
       $('#key-field').hidden = !health.auth_required;
+      $('#pre-seal').textContent = `Sealing publishes this file's fingerprint on ${networkName()}, where it cannot be removed. `
+        + 'Your file and your name stay off-chain. Keep this exact file: any re-export changes its fingerprint.';
+      if (health.auth_required && state.keyStatus === 'unchecked') {
+        const ok = await verifyKey(state.accessKey).catch(() => true);
+        if (ok) state.keyStatus = 'valid'; else forgetKey();
+      }
       $('#key').value = state.accessKey;
     } catch {
       node.dataset.state = 'offline';
       label.textContent = 'Offline';
+      node.title = "Couture's server can't be reached";
     }
   }
 
   // ---- collection ---------------------------------------------------------
 
   let galleryLoaded = false;
+  let galleryLoading = false;
   async function loadGallery() {
-    if (galleryLoaded) return;
-    galleryLoaded = true;
+    if (galleryLoaded || galleryLoading) return;
+    galleryLoading = true;
     const gallery = $('#gallery');
-    let pieces = [];
-    if (DEMO) pieces = DEMO_PIECES;
-    else {
-      try { pieces = await (await api('/api/designs')).json(); } catch { pieces = []; galleryLoaded = false; }
+    const status = $('#gallery-status');
+    status.replaceChildren(el('p', { class: 'muted' }, 'Opening the archive…'));
+    $('#gallery-empty').hidden = true;
+    let pieces;
+    try {
+      pieces = DEMO ? DEMO_PIECES : await (await api('/api/designs')).json();
+      galleryLoaded = true;
+    } catch (error) {
+      gallery.replaceChildren();
+      status.replaceChildren(
+        el('p', { class: 'muted' }, `The archive couldn't be loaded. ${explain(error, 'Loading the archive')}`),
+        el('button', { type: 'button', class: 'button button-quiet', onclick: () => loadGallery() }, 'Try again'));
+      galleryLoading = false;
+      return;
     }
+    galleryLoading = false;
+    status.replaceChildren();
     gallery.replaceChildren(...pieces.map(pieceCard));
-    $('#gallery-empty').hidden = pieces.length > 0 || !galleryLoaded;
+    $('#gallery-empty').hidden = pieces.length > 0;
     const observer = new IntersectionObserver((entries) => {
       entries.filter((e) => e.isIntersecting).forEach((entry) => {
         observer.unobserve(entry.target);
@@ -134,11 +246,11 @@
 
   function pieceCard(piece) {
     const canvas = el('canvas');
-    const card = el('button', { class: 'piece', type: 'button', onclick: () => openViewer(piece) },
-      el('div', { class: 'piece-frame' }, piece.has_preview === false ? el('span', { class: 'piece-placeholder' }, 'No visual') : canvas),
-      el('div', { class: 'piece-meta' },
-        el('div', {}, el('div', { class: 'piece-title' }, piece.title), el('div', { class: 'piece-designer' }, piece.designer)),
-        el('span', { class: 'piece-seal' }, piece.demo ? 'Sample' : 'Sealed')));
+    const card = el('button', { class: 'piece', type: 'button', onclick: () => openViewer(piece, card) },
+      el('span', { class: 'piece-frame' }, piece.has_preview === false ? el('span', { class: 'piece-placeholder' }, 'No visual') : canvas),
+      el('span', { class: 'piece-meta' },
+        el('span', {}, el('span', { class: 'piece-title' }, piece.title), el('span', { class: 'piece-designer' }, piece.designer)),
+        el('span', { class: 'piece-seal' }, piece.demo ? 'Sample' : piece.status === 'confirmed' ? 'Sealed' : 'Pending')));
     card.piece = piece;
     return card;
   }
@@ -149,7 +261,9 @@
     try {
       const view = await loadView(card.piece, 640);
       window.CoutureCanvas.render(canvas, view, { cssWidth: canvas.clientWidth || 360 });
-    } catch { /* leave the frame empty */ }
+    } catch {
+      canvas.replaceWith(el('span', { class: 'piece-placeholder' }, 'Preview unavailable'));
+    }
   }
 
   async function loadView(piece, size) {
@@ -161,29 +275,39 @@
   // ---- protected viewer ---------------------------------------------------
 
   const viewer = $('#viewer');
+  const outside = [$('.masthead'), $('main'), $('.colophon')];
   let viewerPiece = null;
+  let returnFocus = null;
+  let removeGuards = null;
 
-  async function openViewer(piece) {
+  async function openViewer(piece, opener) {
     viewerPiece = piece;
+    returnFocus = opener || document.activeElement;
     viewer.hidden = false;
+    outside.forEach((node) => { node.inert = true; });
     document.body.style.overflow = 'hidden';
+    removeGuards = window.CoutureCanvas.installGuards($('#viewer-stage'), {
+      onExposure: () => { veil(true); setTimeout(() => veil(false), 1500); },
+    });
     $('#viewer-designer').textContent = piece.designer;
     $('#viewer-title').textContent = piece.title;
     renderFacts(piece);
-    $('#certify').hidden = piece.demo || piece.status !== 'confirmed';
-    $('#certify-note').textContent = '';
+    resetCertify(piece);
     const canvas = $('#viewer-canvas');
+    const status = $('#viewer-status');
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
     $('#viewer-close').focus();
-    if (piece.has_preview === false) return;
+    if (piece.has_preview === false) { status.textContent = 'This design has no visual preview.'; return; }
+    status.textContent = 'Preparing the protected view…';
     try {
       const view = await loadView(piece, 1600);
       if (viewerPiece !== piece) return;
       const stage = $('#viewer-stage');
       const fit = Math.min(stage.clientWidth - 48, (stage.clientHeight - 48) * (view.width / view.height));
       window.CoutureCanvas.render(canvas, view, { cssWidth: Math.max(240, Math.min(fit, view.width)) });
+      status.textContent = '';
     } catch (error) {
-      $('#viewer-facts').append(el('dt', {}, 'Rendering'), el('dd', {}, `Unavailable (${error.message})`));
+      if (viewerPiece === piece) status.textContent = `The protected view couldn't be loaded. ${explain(error, 'Loading the view')}`;
     }
   }
 
@@ -197,17 +321,23 @@
     }
     facts.replaceChildren(
       el('dt', {}, 'Sealed'), el('dd', {}, formatDate(piece.registered_at)),
-      el('dt', {}, 'Fingerprint'), el('dd', {}, el('code', {}, piece.sha256)),
-      el('dt', {}, 'Transaction'), el('dd', {}, piece.explorer_url ? link(piece.explorer_url, short(piece.signature, 12, 12)) : '—'),
+      el('dt', {}, 'Fingerprint'), el('dd', {}, proof(piece.sha256)),
+      el('dt', {}, 'Transaction'), el('dd', {}, proof(piece.signature), piece.explorer_url ? [' ', link(piece.explorer_url, 'View on explorer')] : null),
       el('dt', {}, 'Viewer'), el('dd', {}, `Session ${window.CoutureCanvas.session}`));
   }
 
   function closeViewer() {
     viewer.hidden = true;
     viewerPiece = null;
+    removeGuards?.();
+    removeGuards = null;
+    outside.forEach((node) => { node.inert = false; });
     document.body.style.overflow = '';
     const canvas = $('#viewer-canvas');
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    $('#viewer-status').textContent = '';
+    if (returnFocus?.isConnected) returnFocus.focus();
+    returnFocus = null;
   }
 
   $('#viewer-close').addEventListener('click', closeViewer);
@@ -218,52 +348,149 @@
   window.addEventListener('blur', () => veil(true));
   window.addEventListener('focus', () => veil(false));
   document.addEventListener('visibilitychange', () => veil(document.hidden));
-  window.CoutureCanvas.installGuards({ onExposure: () => { veil(true); setTimeout(() => veil(false), 1500); } });
 
-  $('#certify-form').addEventListener('submit', async (event) => {
+  // ---- certificates -------------------------------------------------------
+  // Locked (no key) -> form -> review (explicit confirm) -> result (form locked).
+
+  const certifyForm = $('#certify-form');
+  const review = $('#certify-review');
+
+  function certifyNote(text, isError = false) {
+    const node = $('#certify-note');
+    node.className = `form-note${isError ? ' is-error' : ''}`;
+    node.replaceChildren(...[text].flat());
+  }
+
+  function resetCertify(piece) {
+    const available = !piece.demo && piece.status === 'confirmed' && state.health?.certificates_ready !== false;
+    $('#certify').hidden = !available;
+    if (!available) return;
+    const locked = Boolean(state.health?.auth_required) && state.keyStatus !== 'valid';
+    $('#certify-locked').hidden = !locked;
+    certifyForm.hidden = locked;
+    certifyForm.reset();
+    certifyForm.querySelectorAll('input, button').forEach((node) => { node.disabled = false; });
+    review.hidden = true;
+    review.replaceChildren();
+    certifyNote('');
+  }
+
+  $('#unlock-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const note = $('#certify-note');
-    const owner = $('#certify-owner').value.trim();
+    const input = $('#unlock-key');
     const button = $('button', event.currentTarget);
-    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(owner)) {
-      note.className = 'form-note is-error';
-      note.textContent = 'Enter a valid Solana wallet address.';
-      return;
-    }
+    if (!input.value.trim()) return certifyNote('Enter your studio access key.', true);
     button.disabled = true;
-    note.className = 'form-note';
-    note.textContent = 'Minting the certificate on Solana…';
+    certifyNote('Checking key…');
     try {
-      const response = await api(`/api/designs/${viewerPiece.id}/certificates`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner }),
-      });
-      const cert = await response.json();
-      note.replaceChildren(
-        cert.status === 'confirmed' ? 'Certificate delivered. ' : 'Submitted, awaiting confirmation. ',
-        cert.explorer_url ? link(cert.explorer_url, 'View transaction') : '',
-        cert.asset_explorer_url ? ' · ' : '',
-        cert.asset_explorer_url ? link(cert.asset_explorer_url, 'View asset') : '');
+      if (await setKey(input.value)) {
+        input.value = '';
+        resetCertify(viewerPiece);
+        certifyNote('Key accepted and saved on this device.');
+        $('#certify-owner').focus();
+      } else {
+        certifyNote('This key was not accepted.', true);
+      }
     } catch (error) {
-      note.className = 'form-note is-error';
-      note.textContent = error.status === 401 ? 'A valid access key is required (set it in Register).' : error.message;
+      certifyNote(explain(error, 'Checking the key'), true);
     } finally {
       button.disabled = false;
     }
   });
+
+  certifyForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const owner = $('#certify-owner').value.trim();
+    const order = $('#certify-order').value.trim();
+    if (!WALLET.test(owner)) return certifyNote("That doesn't look like a Solana wallet address (32 to 44 letters and digits).", true);
+    if (!ORDER_REF.test(order)) return certifyNote('Order reference: up to 64 letters, numbers and . _ : - (no spaces).', true);
+    certifyNote('');
+    showReview(owner, order);
+  });
+
+  function showReview(owner, order) {
+    const piece = viewerPiece;
+    certifyForm.querySelectorAll('input, button').forEach((node) => { node.disabled = true; });
+    review.replaceChildren(
+      el('h5', {}, 'Review before issuing'),
+      el('dl', { class: 'facts' },
+        el('dt', {}, 'Piece'), el('dd', {}, piece.title),
+        el('dt', {}, 'Buyer wallet'), el('dd', {}, el('code', {}, owner)),
+        el('dt', {}, 'Order'), el('dd', {}, el('code', {}, order)),
+        el('dt', {}, 'Network'), el('dd', {}, networkName())),
+      el('p', { class: 'review-warning' }, 'This cannot be undone. A certificate sent to a wrong wallet cannot be recalled; check the address with the buyer.'),
+      el('div', { class: 'review-actions' },
+        el('button', { type: 'button', class: 'button', id: 'certify-confirm', onclick: () => issue(piece, owner, order) }, 'Issue certificate'),
+        el('button', { type: 'button', class: 'link', onclick: editCertify }, 'Edit')));
+    review.hidden = false;
+    $('#certify-confirm').focus();
+  }
+
+  function editCertify() {
+    review.hidden = true;
+    review.replaceChildren();
+    certifyForm.querySelectorAll('input, button').forEach((node) => { node.disabled = false; });
+    $('#certify-owner').focus();
+  }
+
+  async function issue(piece, owner, order) {
+    const confirm = $('#certify-confirm');
+    confirm.disabled = true;
+    certifyNote(`Issuing the certificate on ${networkName()}…`);
+    try {
+      const response = await api(`/api/designs/${piece.id}/certificates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // The order reference is the idempotency key: retrying (or a second
+        // click) returns the same certificate instead of minting another.
+        body: JSON.stringify({ owner, order_id: order }),
+      });
+      if (viewerPiece !== piece) return;
+      const cert = await response.json();
+      const replay = response.status === 200;
+      const headline = replay ? 'This order already has its certificate.'
+        : cert.status === 'confirmed' ? 'Certificate delivered.'
+          : cert.status === 'unconfirmed' ? 'Submitted; the network has not confirmed it yet. Check the transaction in a few minutes.'
+            : "The certificate couldn't be issued. Try again with the same order reference; it will not be issued twice.";
+      review.replaceChildren(
+        el('h5', {}, headline),
+        el('dl', { class: 'facts' },
+          el('dt', {}, 'Buyer wallet'), el('dd', {}, proof(cert.owner)),
+          el('dt', {}, 'Order'), el('dd', {}, el('code', {}, order)),
+          cert.signature ? [el('dt', {}, 'Transaction'), el('dd', {}, proof(cert.signature), cert.explorer_url ? [' ', link(cert.explorer_url, 'View on explorer')] : null)] : [],
+          cert.asset_explorer_url ? [el('dt', {}, 'Certificate'), el('dd', {}, link(cert.asset_explorer_url, 'View asset'))] : []),
+        el('div', { class: 'review-actions' },
+          el('button', { type: 'button', class: 'button button-quiet', onclick: () => resetCertify(piece) }, 'Issue another certificate')));
+      certifyNote('');
+    } catch (error) {
+      if (viewerPiece !== piece) return;
+      if (error.status === 401) {
+        forgetKey();
+        resetCertify(piece);
+        certifyNote('Your studio access key was not accepted. Enter it again to continue.', true);
+        return;
+      }
+      confirm.disabled = false;
+      certifyNote(error.status === 502
+        ? "The network rejected the certificate. Nothing was issued; confirm again to retry with the same order reference."
+        : explain(error, 'Issuing the certificate'), true);
+    }
+  }
 
   // ---- register -------------------------------------------------------------
 
   const studio = $('#studio');
   const fileInput = $('#file');
   const timeline = $('#timeline');
+  const maxUploadBytes = () => (state.health?.max_upload_mb || DEFAULT_MAX_UPLOAD_MB) * 1024 * 1024;
 
   function setFile(file) {
     $('#drop').hidden = Boolean(file);
     $('#file-chip').hidden = !file;
     $('#file-name').textContent = file ? `${file.name} · ${formatBytes(file.size)}` : '';
     if (file && !$('#title').value) $('#title').value = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
+    if (file && file.size > maxUploadBytes()) note(`This file is ${formatBytes(file.size)}; the limit is ${formatBytes(maxUploadBytes())}.`, true);
+    else note('');
   }
 
   fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
@@ -289,34 +516,57 @@
   function note(text, isError = false) {
     const node = $('#form-note');
     node.className = `form-note${isError ? ' is-error' : ''}`;
-    node.textContent = text;
+    node.replaceChildren(...[text].flat());
   }
 
+  function resetStudio() {
+    fileInput.value = '';
+    setFile(null);
+    $('#title').value = '';
+    resetProgress();
+    setStudioBusy(false);
+    $('#drop').scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  function setStudioBusy(busy) {
+    $('#submit').disabled = busy;
+    studio.querySelectorAll('input:not([type="file"]), #file-clear').forEach((node) => { node.disabled = busy; });
+  }
+
+  let sealing = false;
   studio.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (sealing) return;
     const file = fileInput.files[0];
     const title = $('#title').value.trim();
     const designer = $('#designer').value.trim();
     if (!file) return note('Choose a design file first.', true);
+    if (file.size === 0) return note('This file is empty.', true);
+    if (file.size > maxUploadBytes()) return note(`This file is ${formatBytes(file.size)}; the limit is ${formatBytes(maxUploadBytes())}.`, true);
     if (!title || !designer) return note('Add the title and the designer.', true);
-    if (state.health?.auth_required) {
-      state.accessKey = $('#key').value.trim();
-      if (!state.accessKey) return note('Enter your access key.', true);
-      saveKey(state.accessKey);
+    if (state.health?.auth_required && state.keyStatus !== 'valid') {
+      const typed = $('#key').value.trim();
+      if (!typed) return note('Enter your studio access key.', true);
+      try {
+        if (!(await setKey(typed))) return note('This access key was not accepted.', true);
+      } catch (error) {
+        return note(explain(error, 'Checking the key'), true);
+      }
     }
 
+    sealing = true;
     resetProgress();
     timeline.hidden = false;
-    const submit = $('#submit');
-    submit.disabled = true;
+    setStudioBusy(true);
     step('received', 'active', `${file.name} · ${formatBytes(file.size)}`);
     const localHash = sha256Hex(file);
 
     if (DEMO) {
       step('received', 'done');
-      step('hashed', 'done', el('code', {}, await localHash), ' (computed locally)');
-      step('submitted', 'error', 'Demo mode: connect a Couture backend to seal on Solana.');
-      submit.disabled = false;
+      step('hashed', 'done', proof(await localHash), ' (computed on this device)');
+      step('submitted', 'pending', 'Demo mode: sealing needs a Couture server. Nothing was sent.');
+      setStudioBusy(false);
+      sealing = false;
       return;
     }
 
@@ -325,15 +575,20 @@
     form.append('title', title);
     form.append('designer', designer);
 
+    let finished = false;
     try {
       const response = await api('/api/designs', { method: 'POST', body: form });
-      await readEvents(response, (event) => handleEvent(event, localHash));
+      await readEvents(response, async (event) => { finished = (await handleEvent(event, localHash)) || finished; });
+      if (!finished) throw Object.assign(new Error('stream ended'), { status: 0 });
     } catch (error) {
-      const active = timeline.querySelector('.is-active');
-      if (active) active.className = 'is-error';
-      note(error.status === 401 ? 'This access key was not accepted.' : `Registration failed: ${error.message}`, true);
+      timeline.querySelector('.is-active')?.classList.replace('is-active', 'is-error');
+      if (error.status === 401) forgetKey();
+      note(error.status === 0 && timeline.querySelector('[data-step="submitted"].is-done')
+        ? 'The connection dropped after the transaction was sent. It may still be sealed: look the file up in Verify in a few minutes.'
+        : explain(error, 'Registration'), true);
     } finally {
-      submit.disabled = false;
+      setStudioBusy(false);
+      sealing = false;
     }
   });
 
@@ -353,62 +608,81 @@
     }
   }
 
+  // Returns true once the stream reached an outcome the designer can act on.
   async function handleEvent(event, localHash) {
     switch (event.event) {
       case 'received':
         step('received', 'done');
         step('hashed', 'active');
-        break;
+        return false;
       case 'hashed': {
         const match = (await localHash) === event.sha256;
-        step('hashed', 'done', el('code', {}, event.sha256), match ? ' · matches your browser' : ' · differs from local computation');
+        step('hashed', 'done', proof(event.sha256), match ? ' · matches your browser' : '');
+        if (!match) {
+          note("The server's fingerprint differs from the one your browser computed, so the file changed in transit. "
+            + "Don't rely on this registration: replace the file and seal it again.", true);
+        }
         step('submitted', 'active', 'Preparing transaction…');
-        break;
+        return false;
       }
       case 'duplicate': {
         const design = event.design;
         step('submitted', 'done', 'Already on the ledger');
-        step('confirmed', design.status === 'confirmed' ? 'done' : 'active',
-          design.status === 'confirmed' ? `Originally sealed ${formatDate(design.registered_at)}` : 'Registration in progress');
-        if (design.status === 'confirmed') showSeal(design, true);
-        break;
+        if (design.status === 'confirmed') {
+          step('confirmed', 'done', `Originally sealed ${formatDate(design.registered_at)}`);
+          showSeal(design, true);
+        } else if (design.status === 'failed') {
+          step('confirmed', 'error', 'A previous registration of this file failed.');
+          note('This file is held by another studio account and its registration did not complete. Contact Couture.', true);
+        } else {
+          step('confirmed', 'pending', 'Registration in progress');
+          note(['This file is already being registered. ', el('a', { href: `#verify/${design.sha256}` }, 'Check its status in Verify'), '.']);
+        }
+        return true;
       }
       case 'submitting':
         step('submitted', 'active', 'Signing and broadcasting…');
-        break;
+        return false;
       case 'submitted':
-        step('submitted', 'done', link(event.explorer_url, short(event.signature, 14, 14)));
+        step('submitted', 'done', proof(event.signature), ' ', link(event.explorer_url, 'View on explorer'));
         step('confirmed', 'active', 'Awaiting network confirmation…');
-        break;
+        return false;
       case 'confirmed':
         step('confirmed', 'done', `Slot ${event.design.slot.toLocaleString()} · ${formatDate(event.design.registered_at)}`);
         showSeal(event.design, false);
         galleryLoaded = false;
-        break;
+        return true;
       case 'unconfirmed':
-        step('confirmed', 'active', event.message);
-        note('The transaction was broadcast. It will appear in the collection once the network confirms it.');
-        break;
+        // Not an endless pulse: a resting state with a way to check back.
+        step('confirmed', 'pending', 'Sent; the network has not confirmed it yet.');
+        note(['The transaction was broadcast and usually confirms within minutes. ',
+          el('a', { href: `#verify/${event.design.sha256}` }, 'Check its status in Verify'), '.']);
+        return true;
       case 'failed':
         timeline.querySelector('.is-active')?.classList.replace('is-active', 'is-error');
-        note(event.message, true);
-        break;
+        note(event.retryable ? `${event.message} Your file was not sealed; you can submit it again.` : event.message, true);
+        return true;
       default:
-        break;
+        return false;
     }
   }
 
   function showSeal(design, isDuplicate) {
     const seal = $('#seal');
+    seal.classList.toggle('is-duplicate', isDuplicate);
     seal.replaceChildren(
-      el('p', { class: 'eyebrow' }, isDuplicate ? 'Previously registered' : 'Sealed on Solana'),
-      el('h3', {}, design.title),
-      el('p', {}, `${design.designer} · ${formatDate(design.registered_at)}`),
+      el('h3', { tabindex: '-1' }, isDuplicate ? 'This file was already registered' : design.title),
+      el('p', {}, isDuplicate
+        ? `Registered as “${design.title}” by ${design.designer} on ${formatDate(design.registered_at)}. A file can only be sealed once. If this registration isn't yours, keep your dated sketches and source files as evidence.`
+        : `${design.designer} · ${formatDate(design.registered_at)}`),
       el('div', { class: 'seal-actions' },
-        link(design.explorer_url, 'View on Solana Explorer'),
+        design.explorer_url ? link(design.explorer_url, 'View on Solana Explorer') : null,
         el('a', { href: `#verify/${design.sha256}` }, 'Verification record'),
-        design.has_preview ? el('a', { href: '#collection' }, 'See it in the collection') : null));
+        !isDuplicate && design.has_preview ? el('a', { href: '#collection' }, 'See it in the collection') : null,
+        el('button', { type: 'button', class: 'link', onclick: resetStudio }, 'Seal another design')));
     seal.hidden = false;
+    seal.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    $('h3', seal).focus({ preventScroll: true });
   }
 
   // ---- verify -------------------------------------------------------------
@@ -416,9 +690,19 @@
   $('#verify-file').addEventListener('change', async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-    $('#verify-hash').value = await sha256Hex(file);
+    const verdict = $('#verdict');
+    verdict.hidden = false;
+    verdict.className = 'verdict';
+    verdict.replaceChildren(el('p', {}, `Fingerprinting ${file.name} on this device…`));
+    try {
+      $('#verify-hash').value = await sha256Hex(file);
+    } catch {
+      verdict.replaceChildren(el('h3', {}, "This file couldn't be read."), el('p', {}, 'Try choosing it again.'));
+      return;
+    } finally {
+      event.target.value = '';
+    }
     lookup($('#verify-hash').value, file.name);
-    event.target.value = '';
   });
 
   $('#verify-form').addEventListener('submit', (event) => {
@@ -426,25 +710,28 @@
     lookup($('#verify-hash').value.trim());
   });
 
+  let lookupSeq = 0;
   async function lookup(hash, filename) {
+    const seq = ++lookupSeq;
     const verdict = $('#verdict');
-    hash = hash.toLowerCase();
+    hash = hash.trim().toLowerCase();
     $('#verify-hash').value = hash;
     verdict.hidden = false;
     if (!/^[0-9a-f]{64}$/.test(hash)) {
       verdict.className = 'verdict is-miss';
-      verdict.replaceChildren(el('h3', {}, 'That is not a SHA-256 fingerprint.'), el('p', {}, 'A fingerprint has 64 hexadecimal characters.'));
+      verdict.replaceChildren(el('h3', {}, 'That is not a SHA-256 fingerprint.'), el('p', {}, 'A fingerprint has 64 characters, 0-9 and a-f.'));
       return;
     }
     if (DEMO) {
       verdict.className = 'verdict is-miss';
-      verdict.replaceChildren(el('h3', {}, 'Verification needs the Couture backend.'), el('p', {}, 'This page is running in demo mode.'));
+      verdict.replaceChildren(el('h3', {}, 'Verification needs a Couture server.'), el('p', {}, 'This page is running in demo mode; your fingerprint was computed on this device.'));
       return;
     }
     verdict.className = 'verdict';
     verdict.replaceChildren(el('p', {}, 'Consulting the registry…'));
     try {
       const design = await (await api(`/api/designs/by-hash/${hash}`)).json();
+      if (seq !== lookupSeq) return;
       verdict.className = 'verdict is-match';
       verdict.replaceChildren(
         el('h3', {}, design.status === 'confirmed' ? 'Registered original.' : 'Registration in progress.'),
@@ -453,14 +740,17 @@
           el('dt', {}, 'Piece'), el('dd', {}, design.title),
           el('dt', {}, 'Designer'), el('dd', {}, design.designer),
           el('dt', {}, 'Sealed'), el('dd', {}, formatDate(design.registered_at)),
-          el('dt', {}, 'Fingerprint'), el('dd', {}, el('code', {}, design.sha256)),
-          el('dt', {}, 'On-chain memo'), el('dd', {}, el('code', {}, design.memo)),
-          el('dt', {}, 'Transaction'), el('dd', {}, design.explorer_url ? link(design.explorer_url, short(design.signature, 12, 12)) : '—')));
+          el('dt', {}, 'Fingerprint'), el('dd', {}, proof(design.sha256)),
+          el('dt', {}, 'On-chain memo'), el('dd', {}, proof(design.memo)),
+          el('dt', {}, 'Transaction'), el('dd', {}, proof(design.signature), design.explorer_url ? [' ', link(design.explorer_url, 'View on explorer')] : null)));
     } catch (error) {
+      if (seq !== lookupSeq) return;
       verdict.className = 'verdict is-miss';
-      verdict.replaceChildren(
-        el('h3', {}, error.status === 404 ? 'No registered design matches.' : 'The registry could not be reached.'),
-        el('p', {}, error.status === 404 ? 'This exact file has not been sealed with Couture.' : error.message));
+      verdict.replaceChildren(...(error.status === 404
+        ? [el('h3', {}, 'No registered design matches.'),
+          el('p', {}, 'This exact file has not been sealed with Couture. Any re-export, crop or compression changes the fingerprint, so ask the designer for the original file they sealed.')]
+        : [el('h3', {}, 'The registry could not be reached.'), el('p', {}, explain(error, 'The lookup')),
+          el('button', { type: 'button', class: 'button button-quiet', onclick: () => lookup(hash, filename) }, 'Try again')]));
     }
   }
 

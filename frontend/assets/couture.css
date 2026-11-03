@@ -277,7 +277,7 @@ a { color: inherit; }
 
 .fields { display: grid; gap: 26px; margin: 34px 0 38px; }
 .field { display: grid; gap: 8px; }
-.field span { font-size: 10px; letter-spacing: .26em; text-transform: uppercase; color: var(--text-soft); }
+.field span { font-size: 11px; letter-spacing: .26em; text-transform: uppercase; color: var(--text-soft); }
 input[type="text"], input[type="password"] {
   width: 100%;
   padding: 10px 0 12px;
@@ -448,6 +448,70 @@ input:focus { outline: none; border-bottom-color: var(--accent); }
 .certify { margin-top: 44px; padding-top: 32px; border-top: 1px solid var(--rule-soft); }
 .certify h4 { margin: 0 0 8px; font: 400 22px var(--serif); }
 .certify p { margin: 0 0 22px; font-size: 13px; color: var(--text-soft); }
+
+/* ---- hardened states (loading, errors, review, proofs) ------------------ */
+
+.piece-frame, .piece-title, .piece-designer { display: block; }
+
+.gallery-status:not(:empty) { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px; margin-bottom: 40px; }
+.gallery-status p, .muted { margin: 0; color: var(--text-soft); font: italic 300 22px/1.4 var(--serif); }
+
+.stage-status {
+  position: absolute; inset: auto 0 50%; z-index: 1;
+  max-width: 28em; margin: 0 auto; padding: 0 24px;
+  text-align: center;
+  font: italic 300 22px/1.4 var(--serif);
+  color: var(--text-soft);
+  pointer-events: none;
+}
+.stage-status:empty { display: none; }
+
+/* Keyboard focus on the file drop zones (the real input is transparent). */
+.drop:focus-within { outline: 1px solid var(--accent); outline-offset: 4px; }
+
+.field .field-status, .field .field-hint { font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--text-soft); }
+.field .field-status:empty { display: none; }
+.field .field-status.is-error { color: var(--danger); }
+
+.pre-seal { margin: 0 0 18px; font-size: 13px; color: var(--text-soft); max-width: 46em; }
+
+/* Full-length proof values with a copy control. */
+.proof { display: inline; }
+.proof code { margin-right: 10px; }
+.copy {
+  padding: 2px 0; border: 0; border-bottom: 1px solid rgba(139, 107, 67, .35);
+  background: none; color: var(--accent);
+  font: 400 11px var(--sans); letter-spacing: .18em; text-transform: uppercase;
+  cursor: pointer; white-space: nowrap;
+}
+.copy:hover { border-bottom-color: var(--accent); }
+
+/* A resting state: sent but not confirmed. No pulse. */
+.timeline li.is-pending { color: var(--text); }
+.timeline li.is-pending::before { border-color: var(--accent); border-style: dashed; }
+
+/* An earlier registration of the same file is information, not a celebration. */
+.seal.is-duplicate { border-color: var(--rule); background: var(--surface); }
+.seal h3:focus { outline: none; }
+.seal-actions .link { padding: 0; }
+
+.certify-form { display: grid; gap: 22px; }
+.certify-form .button { justify-self: start; }
+.certify-form input[type="text"] { font-size: 15px; font-family: var(--mono); }
+#certify-locked p { margin-bottom: 18px; }
+
+.review {
+  margin-top: 26px;
+  padding: 24px;
+  border: 1px solid var(--accent-deep);
+  background: var(--surface);
+  animation: rise .5s var(--ease) both;
+}
+.review h5 { margin: 0 0 18px; font: 300 24px/1.2 var(--serif); }
+.review .facts { margin-bottom: 18px; }
+.review-warning { margin: 0 0 22px !important; color: var(--text) !important; font-size: 13px; }
+.review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; }
+.review-actions .button { width: auto; }
 
 /* ---- footer ------------------------------------------------------------ */
 
